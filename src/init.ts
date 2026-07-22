@@ -18,6 +18,7 @@ import {
   type CaptionPlan,
 } from "./captions.js";
 import { TODO_BASE_URL, TODO_ID } from "./doctor.js";
+import { loadEnv } from "./env.js";
 
 /** Placeholder base URL suggested when --base-url is omitted. */
 const BASE_URL_HINT = "http://localhost:3000";
@@ -330,16 +331,10 @@ async function main(): Promise<void> {
 
   const brand = extractBrand(repoPath);
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.error(
-      "ANTHROPIC_API_KEY is not set. Export it, or run with: node --env-file=.env",
-    );
-    process.exit(1);
-  }
+  const { anthropicApiKey } = loadEnv();
 
   const excerpts = collectRouteExcerpts(repoPath, routes);
-  const client = new Anthropic({ apiKey }) as CaptionClient;
+  const client = new Anthropic({ apiKey: anthropicApiKey }) as CaptionClient;
   const { plan } = await generateCaptions(client, excerpts);
   const shotPlan = planShots(routes, plan);
 

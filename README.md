@@ -45,13 +45,22 @@ The curated result is cached to `out/<your-project>/curation.json`; re-running
 ## Configuration
 
 `init` (for caption generation) and `curate` both need an Anthropic API key.
-Provide it either way:
+Supply it either way — reeltreat picks it up automatically:
 
-```sh
-export ANTHROPIC_API_KEY=sk-ant-...        # in your shell
-# or put it in a .env file (see .env.example) and run with Node's built-in loader:
-node --env-file=.env node_modules/.bin/tsx src/curate.ts myapp
-```
+- Put it in a `.env` file at the repo root (copy `.env.example`):
+
+  ```sh
+  ANTHROPIC_API_KEY=sk-ant-...
+  ```
+
+- Or export it as an environment variable:
+
+  ```sh
+  export ANTHROPIC_API_KEY=sk-ant-...
+  ```
+
+The repo-root `.env` is loaded on startup, so `npm run init -- ...` and
+`npm run curate -- myapp` just work with no extra flags.
 
 ## Status
 Early development. See BACKLOG.md for the roadmap.

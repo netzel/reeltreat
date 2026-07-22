@@ -6,6 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
 import { loadManifest, type Manifest, type Shot } from "./manifest.js";
 import { assertManifestReady } from "./doctor.js";
+import { loadEnv } from "./env.js";
 import {
   TIER_KEYS,
   validateCuration,
@@ -276,13 +277,7 @@ async function main(): Promise<void> {
 
   assertManifestReady(project);
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.error(
-      "ANTHROPIC_API_KEY is not set. Export it, or run with: node --env-file=.env",
-    );
-    process.exit(1);
-  }
+  const { anthropicApiKey } = loadEnv();
 
   const manifest = loadManifest(project);
 
@@ -300,7 +295,7 @@ async function main(): Promise<void> {
   const outPath = resolve("out", project, "curation.json");
   const { images, files } = await loadShotImages(screenshotsDir, manifest);
 
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey: anthropicApiKey });
   const result = await curateProject({
     images,
     files,
