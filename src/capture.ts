@@ -1,16 +1,20 @@
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
   realpathSync,
   rmSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, type Page } from "playwright";
+import sharp from "sharp";
+import { chromium, type Browser, type Page } from "playwright";
 import {
+  isImageShot,
   loadManifest,
   resolveShotSettings,
+  type Manifest,
   type Shot,
   type ShotDefaults,
 } from "./manifest.js";
@@ -78,6 +82,56 @@ export function pruneStaleOutputs(
   return { pruned, curationRemoved };
 }
 
+export interface ImageShotResult {
+  /** Destination PNG written into the screenshots dir. */
+  file: string;
+  /** Resolved absolute source path that was copied/converted. */
+  source: string;
+}
+
+/**
+ * Resolve a manual image shot — no browser involved. Verify the user-supplied
+ * source exists, then write it into `outDir` under the same NN-<id>.png naming
+ * as a browser capture, converting to PNG when the source isn't already PNG.
+ * Because the file lands in the same place with the same name, everything
+ * downstream (curate, and the future render step) is agnostic to how the
+ * screenshot was produced.
+ *
+ * @param manifestDir base dir that a relative `image` path resolves against (the repo root).
+ * @param index 1-based position, used for the output filename prefix.
+ */
+export async function resolveImageShot(
+  shot: Shot,
+  index: number,
+  manifestDir: string,
+  outDir: string,
+): Promise<ImageShotResult> {
+  if (shot.image === undefined) {
+    throw new Error(`resolveImageShot called on a non-image shot: "${shot.id}"`);
+  }
+
+  const source = isAbsolute(shot.image)
+    ? shot.image
+    : resolve(manifestDir, shot.image);
+
+  if (!existsSync(source)) {
+    throw new Error(
+      `image shot "${shot.id}": source file not found at ${source}`,
+    );
+  }
+
+  const file = join(outDir, screenshotFilename(index, shot.id));
+  if (source.toLowerCase().endsWith(".png")) {
+    // Already PNG — a straight copy preserves it exactly.
+    copyFileSync(source, file);
+  } else {
+    // JPEG / WebP / etc. — normalize to PNG so downstream never has to care.
+    await sharp(source).png().toFile(file);
+  }
+
+  return { file, source };
+}
+
 /** The methods captureShot drives — kept narrow so tests can stub a fake page. */
 type CapturePage = Pick<
   Page,
@@ -128,6 +182,9 @@ export async function captureShot(
   outDir: string,
   defaults: ShotDefaults = {},
 ): Promise<ShotCaptureResult> {
+  if (shot.path === undefined) {
+    throw new Error(`captureShot called on an image shot: "${shot.id}"`);
+  }
   const settings = resolveShotSettings(shot, defaults);
   const url = new URL(shot.path, baseUrl).href;
 
@@ -157,6 +214,101 @@ export async function captureShot(
   return { url, file, warning };
 }
 
+/** One shot's outcome from a capture run. */
+export interface ShotRunResult {
+  id: string;
+  file: string;
+  kind: "browser" | "manual";
+}
+
+export interface CaptureRunResult {
+  results: ShotRunResult[];
+  failed: string[];
+  warned: string[];
+  browserLaunched: boolean;
+}
+
+export interface CaptureProjectOptions {
+  manifest: Manifest;
+  /** Base dir relative image paths resolve against (the repo root). */
+  repoRoot: string;
+  /** out/<project>/screenshots — where every shot is written. */
+  outDir: string;
+  /** Saved Playwright session, used only when there is a browser shot. */
+  statePath: string;
+}
+
+/**
+ * Run every shot in a manifest. Manual image shots skip the browser entirely; a
+ * browser is launched only if at least one shot is an actual browser capture,
+ * so an image-only manifest never starts Chromium. Exported and free of
+ * argv/exit concerns so it can be tested with a mocked playwright.
+ */
+export async function captureProject(
+  opts: CaptureProjectOptions,
+): Promise<CaptureRunResult> {
+  const { manifest, repoRoot, outDir, statePath } = opts;
+  const results: ShotRunResult[] = [];
+  const failed: string[] = [];
+  const warned: string[] = [];
+
+  const hasBrowserShot = manifest.shots.some((s) => !isImageShot(s));
+
+  let browser: Browser | undefined;
+  let page: CapturePage | undefined;
+  if (hasBrowserShot) {
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      viewport: manifest.viewport,
+      storageState: statePath,
+    });
+    page = await context.newPage();
+  }
+
+  for (let i = 0; i < manifest.shots.length; i++) {
+    const shot = manifest.shots[i];
+    const index = i + 1;
+    try {
+      if (isImageShot(shot)) {
+        const { file, source } = await resolveImageShot(
+          shot,
+          index,
+          repoRoot,
+          outDir,
+        );
+        console.log(`${shot.id}  (manual: ${source})  ->  ${file}`);
+        results.push({ id: shot.id, file, kind: "manual" });
+      } else {
+        if (!page) {
+          throw new Error(`internal: no browser page for shot "${shot.id}"`);
+        }
+        const { url, file, warning } = await captureShot(
+          page,
+          shot,
+          index,
+          manifest.baseUrl,
+          outDir,
+          manifest.defaults,
+        );
+        if (warning) {
+          warned.push(shot.id);
+          console.warn(`WARN ${shot.id}: ${warning}`);
+        }
+        console.log(`${shot.id}  ${url}  ->  ${file}`);
+        results.push({ id: shot.id, file, kind: "browser" });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`FAILED ${shot.id}: ${msg}`);
+      failed.push(shot.id);
+    }
+  }
+
+  if (browser) await browser.close();
+
+  return { results, failed, warned, browserLaunched: browser !== undefined };
+}
+
 async function main(): Promise<void> {
   const project = process.argv[2];
   if (!project) {
@@ -166,11 +318,15 @@ async function main(): Promise<void> {
 
   assertManifestReady(project);
   const manifest = loadManifest(project);
+  const repoRoot = resolve(".");
 
+  // A saved session is only needed when we actually drive a browser; an
+  // image-only manifest can run with no login at all.
+  const hasBrowserShot = manifest.shots.some((s) => !isImageShot(s));
   // Unchanged across login modes: both stealth and attach login write
   // auth/<project>.json, so capture consumes the same file either way.
   const statePath = resolve("auth", `${project}.json`);
-  if (!existsSync(statePath)) {
+  if (hasBrowserShot && !existsSync(statePath)) {
     console.error(
       `No saved session at ${statePath}. Run: npm run login -- ${project} first`,
     );
@@ -192,41 +348,13 @@ async function main(): Promise<void> {
     );
   }
 
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    viewport: manifest.viewport,
-    storageState: statePath,
+  const { results, failed, warned } = await captureProject({
+    manifest,
+    repoRoot,
+    outDir,
+    statePath,
   });
-  const page = await context.newPage();
 
-  const failed: string[] = [];
-  const warned: string[] = [];
-  for (let i = 0; i < manifest.shots.length; i++) {
-    const shot = manifest.shots[i];
-    try {
-      const { url, file, warning } = await captureShot(
-        page,
-        shot,
-        i + 1,
-        manifest.baseUrl,
-        outDir,
-        manifest.defaults,
-      );
-      if (warning) {
-        warned.push(shot.id);
-        console.warn(`WARN ${shot.id}: ${warning}`);
-      }
-      console.log(`${shot.id}  ${url}  ->  ${file}`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`FAILED ${shot.id}: ${msg}`);
-      failed.push(shot.id);
-    }
-  }
-
-  await browser.close();
-
-  const captured = manifest.shots.length - failed.length;
   if (warned.length > 0) {
     console.log(
       `\n${warned.length} shot(s) captured with warnings: ${warned.join(", ")}`,
@@ -237,7 +365,7 @@ async function main(): Promise<void> {
     console.error(`\n${failed.length} shot(s) failed: ${failed.join(", ")}`);
     process.exit(1);
   }
-  console.log(`\nCaptured ${captured} shot(s) to ${outDir}`);
+  console.log(`\nCaptured ${results.length} shot(s) to ${outDir}`);
 }
 
 /** True when this file is run directly (not imported by tests). */

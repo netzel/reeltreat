@@ -31,22 +31,70 @@ const captureFields = {
   fullPage: z.boolean().optional(),
 };
 
-/** A single screen to capture. */
-export const ShotSchema = z.object({
-  /** Slug used in output filenames: lowercase letters, numbers and hyphens only. */
-  id: z
-    .string()
-    .regex(
-      /^[a-z0-9-]+$/,
-      "shot id must be a slug (lowercase letters, numbers, hyphens only)",
-    ),
-  /** Route path (or full URL) to visit, resolved against the manifest baseUrl. */
-  path: z.string(),
-  /** Human-readable caption for the shot. */
-  caption: z.string(),
-  ...captureFields,
-});
+/**
+ * A single screen. Either a browser capture (`path`) or a manually-supplied
+ * screenshot (`image`) — exactly one of the two. `image` is for states
+ * automation cannot reach: anything needing real hardware input, live audio, or
+ * a human in the loop.
+ */
+export const ShotSchema = z
+  .object({
+    /** Slug used in output filenames: lowercase letters, numbers and hyphens only. */
+    id: z
+      .string()
+      .regex(
+        /^[a-z0-9-]+$/,
+        "shot id must be a slug (lowercase letters, numbers, hyphens only)",
+      ),
+    /** Route path (or full URL) to visit, resolved against the manifest baseUrl. */
+    path: z.string().optional(),
+    /**
+     * Path to a screenshot you supplied yourself, used in place of `path`.
+     * Resolved relative to the repo root if not absolute. Browser-only settings
+     * are not allowed alongside it.
+     */
+    image: z.string().optional(),
+    /** Human-readable caption for the shot. */
+    caption: z.string(),
+    ...captureFields,
+  })
+  .superRefine((shot, ctx) => {
+    const hasPath = shot.path !== undefined;
+    const hasImage = shot.image !== undefined;
+
+    if (hasPath && hasImage) {
+      ctx.addIssue({
+        code: "custom",
+        message: "a shot must set either 'path' or 'image', not both",
+        path: ["image"],
+      });
+    } else if (!hasPath && !hasImage) {
+      ctx.addIssue({
+        code: "custom",
+        message: "a shot must set either 'path' (browser capture) or 'image' (manual screenshot)",
+        path: ["path"],
+      });
+    }
+
+    if (hasImage) {
+      // Browser-only settings make no sense for a manual screenshot.
+      for (const field of Object.keys(captureFields) as (keyof typeof captureFields)[]) {
+        if (shot[field] !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            message: `'${field}' is a browser-only setting and cannot be used on an image shot`,
+            path: [field],
+          });
+        }
+      }
+    }
+  });
 export type Shot = z.infer<typeof ShotSchema>;
+
+/** True if the shot is a manually-supplied image rather than a browser capture. */
+export function isImageShot(shot: Shot): shot is Shot & { image: string } {
+  return shot.image !== undefined;
+}
 
 /**
  * Manifest-level capture defaults, applied to every shot that does not set its

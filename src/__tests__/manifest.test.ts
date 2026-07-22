@@ -204,6 +204,18 @@ describe("resolveShotSettings", () => {
     expect(resolveShotSettings(shot(), defaults)).toEqual(defaults);
   });
 
+  it("uses built-in defaults for image shots too (though capture ignores them)", () => {
+    // image shots skip the browser, but resolveShotSettings stays total.
+    const parsed = ShotSchema.parse({ id: "mic", caption: "Mic", image: "m.png" });
+    expect(resolveShotSettings(parsed)).toEqual({
+      waitUntil: "load",
+      timeoutMs: 30000,
+      waitFor: undefined,
+      delayMs: undefined,
+      fullPage: false,
+    });
+  });
+
   it("lets an explicit per-shot value win over the manifest default, per field", () => {
     const defaults = {
       waitUntil: "domcontentloaded" as const,
@@ -229,5 +241,69 @@ describe("resolveShotSettings", () => {
       waitFor: "#shot",
       fullPage: false,
     });
+  });
+});
+
+describe("image shots", () => {
+  it("parses a shot that supplies image instead of path", () => {
+    const shot = ShotSchema.safeParse({
+      id: "mic",
+      caption: "Live transcription",
+      image: "manual/myapp/mic.png",
+    });
+    expect(shot.success).toBe(true);
+
+    const manifest = ManifestSchema.safeParse({
+      name: "myapp",
+      baseUrl: "https://myapp.example.com",
+      shots: [{ id: "mic", caption: "Live transcription", image: "manual/myapp/mic.png" }],
+    });
+    expect(manifest.success).toBe(true);
+  });
+
+  it("rejects a shot that sets both path and image", () => {
+    const result = ShotSchema.safeParse({
+      id: "mic",
+      caption: "Mic",
+      path: "/mic",
+      image: "mic.png",
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.issues.some((i) => /not both/.test(i.message))).toBe(true);
+  });
+
+  it("rejects a shot that sets neither path nor image", () => {
+    const result = ShotSchema.safeParse({ id: "mic", caption: "Mic" });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(
+      result.error.issues.some((i) => /either 'path' .* or 'image'/.test(i.message)),
+    ).toBe(true);
+  });
+
+  it("rejects every browser-only field on an image shot, naming the field", () => {
+    for (const field of ["waitFor", "delayMs", "waitUntil", "timeoutMs", "fullPage"]) {
+      const value =
+        field === "waitUntil"
+          ? "load"
+          : field === "waitFor"
+            ? "#x"
+            : field === "fullPage"
+              ? true
+              : 1000;
+      const result = ShotSchema.safeParse({
+        id: "mic",
+        caption: "Mic",
+        image: "mic.png",
+        [field]: value,
+      });
+      expect(result.success, `${field} should be rejected`).toBe(false);
+      if (result.success) continue;
+      const named = result.error.issues.some(
+        (i) => i.path.includes(field) && i.message.includes(field),
+      );
+      expect(named, `error should name ${field}`).toBe(true);
+    }
   });
 });

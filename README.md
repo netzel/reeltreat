@@ -86,6 +86,30 @@ generated manifests work on typical client-rendered apps without hand editing.
 frames never reach curation. When anything is pruned, the now-stale
 `out/<project>/curation.json` is deleted too — re-run `curate` to regenerate it.
 
+**Manual image shots.** Some states can't be reached by automation — anything
+needing real hardware input (a live microphone or camera), live audio, or a
+human in the loop. For those, take the screenshot yourself and point a shot at
+it with `image` instead of `path`:
+
+```yaml
+shots:
+  - id: dashboard
+    path: /dashboard          # browser capture
+    caption: Overview
+  - id: live-transcription
+    image: manual/myapp/live-transcription.png   # your own screenshot
+    caption: Real-time transcription as you speak
+```
+
+A shot sets exactly one of `path` or `image`; browser-only settings
+(`waitUntil`, `timeoutMs`, `waitFor`, `delayMs`, `fullPage`) aren't allowed on an
+image shot. The file is resolved relative to the repo root (absolute paths work
+too), converted to PNG if needed, and written into the screenshots directory
+with the same `NN-<id>.png` naming as a captured shot — so curation and
+rendering treat it identically. Keep these files under **`manual/<project>/`** at
+the repo root; that folder is gitignored. If a manifest has only image shots,
+`capture` runs without launching a browser or needing a saved login.
+
 ### Generating a manifest
 
 `init` introspects a local app repo and writes `projects/<project>.yaml` with

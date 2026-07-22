@@ -8,13 +8,46 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 import {
+  captureProject,
   captureShot,
   pruneStaleOutputs,
   pruneStaleScreenshots,
+  resolveImageShot,
   screenshotFilename,
 } from "../capture.js";
-import { ShotSchema, type Shot } from "../manifest.js";
+import { ManifestSchema, ShotSchema, type Shot } from "../manifest.js";
+
+// Mock playwright so captureProject can be exercised without a real browser.
+// captureShot's own tests pass a hand-built stub page and never touch this.
+const pw = vi.hoisted(() => {
+  const screenshot = vi.fn().mockResolvedValue(undefined);
+  const page = {
+    goto: vi.fn().mockResolvedValue(undefined),
+    screenshot,
+    waitForSelector: vi.fn().mockResolvedValue(undefined),
+    waitForTimeout: vi.fn().mockResolvedValue(undefined),
+    evaluate: vi.fn().mockResolvedValue("complete"),
+  };
+  const context = { newPage: vi.fn().mockResolvedValue(page) };
+  const browser = {
+    newContext: vi.fn().mockResolvedValue(context),
+    close: vi.fn().mockResolvedValue(undefined),
+  };
+  const launch = vi.fn().mockResolvedValue(browser);
+  return { launch, browser, context, page, screenshot };
+});
+
+vi.mock("playwright", () => ({ chromium: { launch: pw.launch } }));
+
+/** 8x8 solid image written in the given format, for image-shot tests. */
+async function writeImage(path: string, format: "png" | "jpeg"): Promise<void> {
+  const img = sharp({
+    create: { width: 8, height: 8, channels: 3, background: { r: 10, g: 20, b: 30 } },
+  });
+  await (format === "png" ? img.png() : img.jpeg()).toFile(path);
+}
 
 /** A stub Page with vi.fn() for every method captureShot touches. */
 function stubPage() {
@@ -259,5 +292,132 @@ describe("pruneStaleOutputs", () => {
     expect(result.pruned).toEqual([]);
     expect(result.curationRemoved).toBe(false);
     expect(existsSync(join(projectOutDir, "curation.json"))).toBe(true);
+  });
+});
+
+describe("resolveImageShot", () => {
+  let repoRoot: string;
+  let outDir: string;
+
+  const imgShot = (image: string): Shot =>
+    ShotSchema.parse({ id: "mic", caption: "Mic", image });
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), "reeltreat-img-"));
+    outDir = join(repoRoot, "out", "screenshots");
+    mkdirSync(outDir, { recursive: true });
+  });
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it("writes a relative image to NN-<id>.png, resolved against the repo root", async () => {
+    await writeImage(join(repoRoot, "mic.png"), "png");
+    const { file, source } = await resolveImageShot(imgShot("mic.png"), 2, repoRoot, outDir);
+
+    expect(file).toBe(join(outDir, "02-mic.png"));
+    expect(source).toBe(join(repoRoot, "mic.png"));
+    expect(existsSync(file)).toBe(true);
+  });
+
+  it("throws a clear error naming the shot id and resolved path when the source is missing", async () => {
+    await expect(
+      resolveImageShot(imgShot("nope.png"), 1, repoRoot, outDir),
+    ).rejects.toThrow(/image shot "mic": source file not found at .*nope\.png/);
+  });
+
+  it("converts a JPEG source to PNG", async () => {
+    await writeImage(join(repoRoot, "mic.jpg"), "jpeg");
+    const { file } = await resolveImageShot(imgShot("mic.jpg"), 1, repoRoot, outDir);
+
+    const meta = await sharp(file).metadata();
+    expect(meta.format).toBe("png");
+  });
+
+  it("honors an absolute source path", async () => {
+    const abs = join(repoRoot, "abs.png");
+    await writeImage(abs, "png");
+    const otherBase = mkdtempSync(join(tmpdir(), "reeltreat-other-"));
+
+    const { source, file } = await resolveImageShot(imgShot(abs), 1, otherBase, outDir);
+
+    expect(source).toBe(abs); // absolute, not joined onto otherBase
+    expect(existsSync(file)).toBe(true);
+    rmSync(otherBase, { recursive: true, force: true });
+  });
+});
+
+describe("captureProject", () => {
+  let repoRoot: string;
+  let outDir: string;
+
+  const manifest = (shots: unknown[]) =>
+    ManifestSchema.parse({
+      name: "myapp",
+      baseUrl: "https://myapp.example.com",
+      shots,
+    });
+
+  beforeEach(() => {
+    pw.launch.mockClear();
+    pw.screenshot.mockClear();
+    repoRoot = mkdtempSync(join(tmpdir(), "reeltreat-run-"));
+    outDir = join(repoRoot, "out", "screenshots");
+    mkdirSync(outDir, { recursive: true });
+  });
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it("never launches a browser for an all-image manifest", async () => {
+    await writeImage(join(repoRoot, "a.png"), "png");
+
+    const result = await captureProject({
+      manifest: manifest([{ id: "a", caption: "A", image: "a.png" }]),
+      repoRoot,
+      outDir,
+      statePath: "unused.json",
+    });
+
+    expect(pw.launch).not.toHaveBeenCalled();
+    expect(result.browserLaunched).toBe(false);
+    expect(result.results).toEqual([
+      { id: "a", file: join(outDir, "01-a.png"), kind: "manual" },
+    ]);
+    expect(existsSync(join(outDir, "01-a.png"))).toBe(true);
+  });
+
+  it("captures browser shots and resolves image shots into correctly ordered filenames", async () => {
+    await writeImage(join(repoRoot, "mic.png"), "png");
+
+    const result = await captureProject({
+      manifest: manifest([
+        { id: "home", path: "/home", caption: "Home" },
+        { id: "mic", caption: "Mic", image: "mic.png" },
+        { id: "about", path: "/about", caption: "About" },
+      ]),
+      repoRoot,
+      outDir,
+      statePath: "auth.json",
+    });
+
+    expect(pw.launch).toHaveBeenCalledTimes(1);
+    expect(result.results.map((r) => r.file)).toEqual([
+      join(outDir, "01-home.png"),
+      join(outDir, "02-mic.png"),
+      join(outDir, "03-about.png"),
+    ]);
+    expect(result.results.map((r) => r.kind)).toEqual(["browser", "manual", "browser"]);
+
+    // Browser shots screenshot to their ordered paths; the image shot is a real file.
+    expect(pw.screenshot).toHaveBeenCalledWith({
+      path: join(outDir, "01-home.png"),
+      fullPage: false,
+    });
+    expect(pw.screenshot).toHaveBeenCalledWith({
+      path: join(outDir, "03-about.png"),
+      fullPage: false,
+    });
+    expect(existsSync(join(outDir, "02-mic.png"))).toBe(true);
   });
 });

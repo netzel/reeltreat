@@ -80,3 +80,14 @@ shots:
     delayMs: 500
     # Capture the full scrollable page instead of just the viewport.
     fullPage: true
+
+  # Manual image shot: supply a screenshot you took yourself, for a state the
+  # browser can't reach on its own — anything needing real hardware input, live
+  # audio, or a human in the loop (here, a live voice-transcription view being
+  # driven by a real microphone). Provide `image` instead of `path`.
+  # Browser-only settings (waitUntil, timeoutMs, waitFor, delayMs, fullPage) are
+  # not allowed on an image shot. Keep the file under manual/<project>/ at the
+  # repo root (that folder is gitignored, so your assets never ship).
+  - id: live-transcription
+    caption: Real-time transcription as you speak
+    image: manual/myapp/live-transcription.png
