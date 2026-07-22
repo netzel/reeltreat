@@ -1,0 +1,24 @@
+{
+  "name": "reeltreat",
+  "version": "1.0.0",
+  "description": "Every project deserves a trailer. reeltreat turns your web apps into crisp, branded demo videos — any length, zero editing.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "login": "tsx src/login.ts",
+    "capture": "tsx src/capture.ts",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "dependencies": {
+    "playwright": "^1.61.1",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

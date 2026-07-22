@@ -1,0 +1,49 @@
+# Example reeltreat project manifest.
+#
+# Copy this file to projects/<your-project>.yaml and edit it, then run:
+#   npm run login   -- <your-project>   # one-time: log in, session is saved
+#   npm run capture -- <your-project>   # screenshots every shot below
+#
+# "myapp" and "example.com" are placeholders — swap in your own app.
+
+# Display name, used in the demo video's title card.
+name: myapp
+
+# Base URL every shot's `path` is resolved against.
+# Can be a deployed site or a local dev server, e.g. http://localhost:3000
+baseUrl: https://myapp.example.com
+
+# Browser viewport for both login and capture.
+viewport:
+  width: 1440
+  height: 900
+
+# Where the one-time manual login should start. Path or full URL.
+# Optional — defaults to baseUrl if omitted.
+loginUrl: /login
+
+# Brand tokens (all optional) used later by the render layer.
+brand:
+  logoPath: ./assets/logo.svg
+  primaryColor: "#0B5FFF"
+  accentColor: "#00C2A8"
+  font: Inter
+
+# The screens to capture, in order. `id` must be a slug
+# (lowercase letters, numbers, hyphens) and unique within this file.
+shots:
+  - id: dashboard
+    path: /dashboard
+    caption: Your whole workspace at a glance
+    # Wait for a specific element before screenshotting, so the shot isn't
+    # captured mid-load. Optional CSS selector.
+    waitFor: "[data-testid='dashboard-ready']"
+
+  - id: settings
+    path: /settings
+    caption: Fine-tune everything in one place
+    # Extra settle time (ms) after load — handy for entry animations.
+    # Optional, non-negative.
+    delayMs: 500
+    # Capture the full scrollable page instead of just the viewport.
+    fullPage: true
