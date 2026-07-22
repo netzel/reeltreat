@@ -1,8 +1,10 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { loadManifest } from "./manifest.js";
+import { assertManifestReady } from "./doctor.js";
 
 /** Resolve a login target (path or full URL) against the base URL. */
 function resolveLoginUrl(baseUrl: string, loginUrl?: string): string {
@@ -27,6 +29,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  assertManifestReady(project);
   const manifest = loadManifest(project);
   const target = resolveLoginUrl(manifest.baseUrl, manifest.loginUrl);
 
@@ -48,7 +51,20 @@ async function main(): Promise<void> {
   console.log(`Saved session to ${statePath}`);
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+/** True when this file is run directly (not imported by tests). */
+function isDirectRun(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectRun()) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

@@ -5,3 +5,4 @@ auth/
 *.log
 dist/
 projects/*.yaml
+!projects/example.yaml

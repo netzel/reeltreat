@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright";
 import { loadManifest, type Shot } from "./manifest.js";
+import { assertManifestReady } from "./doctor.js";
 
 /** Zero-padded 2-digit index, e.g. 1 -> "01". */
 function pad2(n: number): string {
@@ -46,6 +47,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  assertManifestReady(project);
   const manifest = loadManifest(project);
 
   const statePath = resolve("auth", `${project}.json`);

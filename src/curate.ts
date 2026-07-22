@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
 import { loadManifest, type Manifest, type Shot } from "./manifest.js";
+import { assertManifestReady } from "./doctor.js";
 import {
   TIER_KEYS,
   validateCuration,
@@ -272,6 +273,8 @@ async function main(): Promise<void> {
     console.error("Usage: npm run curate -- <project> [--force]");
     process.exit(1);
   }
+
+  assertManifestReady(project);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {

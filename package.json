@@ -5,6 +5,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "init": "tsx src/init.ts",
     "login": "tsx src/login.ts",
     "capture": "tsx src/capture.ts",
     "curate": "tsx src/curate.ts",
