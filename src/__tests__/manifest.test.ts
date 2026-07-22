@@ -19,7 +19,50 @@ describe("ManifestSchema", () => {
     const m = result.data;
     expect(m.viewport).toEqual({ width: 1440, height: 900 });
     expect(m.shots[0].fullPage).toBe(false);
+    expect(m.shots[0].waitUntil).toBe("load");
+    expect(m.shots[0].timeoutMs).toBe(30000);
     expect(m.brand).toEqual({});
+  });
+
+  it("accepts valid waitUntil values and a positive timeoutMs", () => {
+    const result = ManifestSchema.safeParse({
+      ...base(),
+      shots: [
+        {
+          id: "live",
+          path: "/live",
+          caption: "Live",
+          waitUntil: "domcontentloaded",
+          timeoutMs: 5000,
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.shots[0].waitUntil).toBe("domcontentloaded");
+    expect(result.data.shots[0].timeoutMs).toBe(5000);
+  });
+
+  it("rejects an invalid waitUntil value", () => {
+    const result = ManifestSchema.safeParse({
+      ...base(),
+      shots: [{ id: "a", path: "/a", caption: "A", waitUntil: "commit" }],
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.issues.some((i) => i.path.includes("waitUntil"))).toBe(true);
+  });
+
+  it("rejects a zero or negative timeoutMs", () => {
+    for (const timeoutMs of [0, -1]) {
+      const result = ManifestSchema.safeParse({
+        ...base(),
+        shots: [{ id: "a", path: "/a", caption: "A", timeoutMs }],
+      });
+      expect(result.success).toBe(false);
+      if (result.success) continue;
+      expect(result.error.issues.some((i) => i.path.includes("timeoutMs"))).toBe(true);
+    }
   });
 
   it("preserves explicit viewport and fullPage values", () => {

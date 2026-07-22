@@ -16,6 +16,17 @@ export const ShotSchema = z.object({
   path: z.string(),
   /** Human-readable caption for the shot. */
   caption: z.string(),
+  /**
+   * When navigation is considered done. Defaults to "load". Prefer
+   * "domcontentloaded" (plus waitFor/delayMs) for pages with long-lived
+   * connections — streaming, polling, or websockets — since "networkidle"
+   * never settles and is discouraged by Playwright.
+   */
+  waitUntil: z
+    .enum(["load", "domcontentloaded", "networkidle"])
+    .default("load"),
+  /** Navigation/selector wait budget in milliseconds. */
+  timeoutMs: z.number().int().positive().default(30000),
   /** Optional CSS selector to await before screenshotting. */
   waitFor: z.string().optional(),
   /** Optional extra settle time in milliseconds after load. */

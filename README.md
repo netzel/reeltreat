@@ -47,6 +47,17 @@ npm run login -- myapp --mode attach   # attach to your own Chrome
   This is a normal user signing in to their own application — attach just avoids
   a session being rejected for looking automated.
 
+### Capturing
+
+Each shot navigates with `waitUntil` (default `load`) and a `timeoutMs`
+(default 30000). If a shot sits on a page with a long-lived connection —
+streaming media, polling, or websockets — set `waitUntil: domcontentloaded` and
+lean on a `waitFor` selector or `delayMs` to time the shot; don't wait on the
+network (`networkidle` never settles on such pages, and Playwright discourages
+it). A navigation timeout no longer abandons a shot: if the page rendered,
+capture screenshots it anyway and reports it as "captured with warnings" —
+only shots that produced no page at all count as failures.
+
 ### Generating a manifest
 
 `init` introspects a local app repo and writes `projects/<project>.yaml` with

@@ -20,7 +20,14 @@ vi.mock("@anthropic-ai/sdk", () => ({ default: class Anthropic {} }));
 const MANIFEST_IDS = ["dashboard", "settings"];
 
 function shot(id: string): Shot {
-  return { id, path: `/${id}`, caption: `Caption ${id}`, fullPage: false };
+  return {
+    id,
+    path: `/${id}`,
+    caption: `Caption ${id}`,
+    waitUntil: "load",
+    timeoutMs: 30000,
+    fullPage: false,
+  };
 }
 
 /** A well-formed curation whose cuts sum to their tier values. */

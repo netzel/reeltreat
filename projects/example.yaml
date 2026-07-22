@@ -35,6 +35,16 @@ shots:
   - id: dashboard
     path: /dashboard
     caption: Your whole workspace at a glance
+    # When navigation is considered done. Optional, one of:
+    #   load            (default) wait for the load event
+    #   domcontentloaded  wait only for the initial HTML/DOM
+    #   networkidle     wait for the network to go quiet — AVOID: it never
+    #                   settles on pages with live connections, and Playwright
+    #                   discourages it.
+    # Pages with long-lived connections (streaming audio/video, polling,
+    # websockets) should use "domcontentloaded" plus a waitFor selector or a
+    # delayMs settle, rather than waiting on the network.
+    waitUntil: load
     # Wait for a specific element before screenshotting, so the shot isn't
     # captured mid-load. Optional CSS selector.
     waitFor: "[data-testid='dashboard-ready']"
@@ -42,6 +52,14 @@ shots:
   - id: settings
     path: /settings
     caption: Fine-tune everything in one place
+    # Navigation/selector wait budget in milliseconds. Optional, default 30000.
+    # A navigation timeout no longer fails the shot: if the page has rendered,
+    # capture screenshots it anyway and reports a warning.
+    timeoutMs: 30000
+    # Example for a page that holds an open connection: don't wait on the
+    # network; take the DOM and settle briefly before the shot.
+    #   waitUntil: domcontentloaded
+    #   delayMs: 500
     # Extra settle time (ms) after load — handy for entry animations.
     # Optional, non-negative.
     delayMs: 500
