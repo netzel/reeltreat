@@ -4,3 +4,4 @@ auth/
 .env
 *.log
 dist/
+projects/*.yaml
