@@ -8,3 +8,4 @@
 ## Done
 - Slice 1: manifest schema + Playwright login/capture commands — 410e196
 - Slice 2: curation call + cached curation.json — f69c559
+- Slice 2.5: init command generates a manifest by introspecting a local repo (framework-aware route discovery, brand extraction, AI captions, doctor pre-flight check) — ee8c304
