@@ -103,6 +103,23 @@ describe("buildManifestYaml", () => {
     }
   });
 
+  it("includes a defaults block with a settle delay that parses through the schema", () => {
+    const yaml = buildManifestYaml({
+      project: "myapp",
+      baseUrl: "http://localhost:3000",
+      viewport: { width: 1440, height: 900 },
+      brand: {},
+      active,
+      dynamic: [],
+    });
+
+    expect(yaml).toContain("defaults:");
+    expect(yaml).toContain("delayMs: 2000");
+
+    const parsed = ManifestSchema.parse(parseYaml(yaml));
+    expect(parsed.defaults.delayMs).toBe(2000);
+  });
+
   it("emits dynamic routes commented out at the bottom, never as active shots", () => {
     const yaml = buildManifestYaml({
       project: "myapp",

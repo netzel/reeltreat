@@ -22,6 +22,21 @@ viewport:
 # Optional — defaults to baseUrl if omitted.
 loginUrl: /login
 
+# Capture defaults applied to every shot below unless the shot sets its own.
+# Resolution order for each field: per-shot value > this default > built-in.
+# Built-ins: waitUntil=load, timeoutMs=30000, fullPage=false (waitFor/delayMs unset).
+# Same fields and types as the per-shot settings documented under `shots`.
+defaults:
+  # Settle delay (ms) after load, so client-rendered pages finish fetching data
+  # before the screenshot — avoids capturing loading skeletons. This is the most
+  # common thing to set once here instead of on every shot.
+  delayMs: 2000
+  # Other fields you may set here (all optional):
+  #   waitUntil: load        # or domcontentloaded / networkidle
+  #   timeoutMs: 30000
+  #   waitFor: "[data-testid='app-ready']"
+  #   fullPage: false
+
 # Brand tokens (all optional) used later by the render layer.
 brand:
   logoPath: ./assets/logo.svg

@@ -202,6 +202,16 @@ export function buildManifestYaml(input: ManifestYamlInput): string {
   }
   out.push("");
 
+  // Capture defaults applied to every shot below unless the shot overrides them.
+  out.push("# Capture defaults for every shot below (per-shot value > this > built-in).");
+  out.push("defaults:");
+  out.push("  # Settle delay (ms) so client-rendered pages finish loading their data");
+  out.push("  # before the screenshot — avoids capturing loading skeletons.");
+  out.push("  delayMs: 2000");
+  out.push("  # For pages holding an open connection (streaming, polling, websockets),");
+  out.push("  # set waitUntil: domcontentloaded here rather than raising the timeout.");
+  out.push("");
+
   out.push("# Screens to capture, in priority order.");
   out.push("shots:");
   if (active.length === 0) {

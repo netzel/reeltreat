@@ -58,6 +58,34 @@ it). A navigation timeout no longer abandons a shot: if the page rendered,
 capture screenshots it anyway and reports it as "captured with warnings" —
 only shots that produced no page at all count as failures.
 
+**Defaults for every shot.** A top-level `defaults` block sets capture options
+once for all shots — handy for client-rendered apps, where a `delayMs` settle
+keeps you from screenshotting loading skeletons:
+
+```yaml
+defaults:
+  delayMs: 2000            # settle every shot before the screenshot
+shots:
+  - id: dashboard
+    path: /dashboard
+    caption: Overview      # inherits delayMs: 2000
+  - id: report
+    path: /report
+    caption: Report
+    delayMs: 0             # per-shot value wins over the default
+```
+
+It supports `waitUntil`, `timeoutMs`, `delayMs`, `waitFor`, and `fullPage`.
+Resolution per field is: explicit per-shot value → manifest default → built-in
+default. `init` generates a `defaults` block with `delayMs: 2000` so freshly
+generated manifests work on typical client-rendered apps without hand editing.
+
+**Stale-screenshot pruning.** Before capturing, any `.png` in
+`out/<project>/screenshots/` that the current manifest no longer produces
+(a renamed, reordered, or deleted shot) is removed and logged, so orphaned
+frames never reach curation. When anything is pruned, the now-stale
+`out/<project>/curation.json` is deleted too — re-run `curate` to regenerate it.
+
 ### Generating a manifest
 
 `init` introspects a local app repo and writes `projects/<project>.yaml` with

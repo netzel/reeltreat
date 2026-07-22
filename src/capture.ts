@@ -1,13 +1,81 @@
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright";
-import { loadManifest, type Shot } from "./manifest.js";
+import {
+  loadManifest,
+  resolveShotSettings,
+  type Shot,
+  type ShotDefaults,
+} from "./manifest.js";
 import { assertManifestReady } from "./doctor.js";
 
 /** Zero-padded 2-digit index, e.g. 1 -> "01". */
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
+}
+
+/** Output filename for a shot at a 1-based index — the single source of naming. */
+export function screenshotFilename(index: number, shotId: string): string {
+  return `${pad2(index)}-${shotId}.png`;
+}
+
+/**
+ * Delete any .png in `screenshotsDir` that is not in `expectedFilenames`, so a
+ * renamed/reordered/removed shot doesn't leave an orphan that still feeds
+ * curation. Only touches .png files directly in that directory; never recurses,
+ * never removes other file types, and no-ops on a missing/empty directory.
+ * Returns the basenames that were pruned.
+ */
+export function pruneStaleScreenshots(
+  screenshotsDir: string,
+  expectedFilenames: string[],
+): string[] {
+  if (!existsSync(screenshotsDir)) return [];
+  const expected = new Set(expectedFilenames);
+  const pruned: string[] = [];
+  for (const name of readdirSync(screenshotsDir)) {
+    if (!name.toLowerCase().endsWith(".png")) continue;
+    if (expected.has(name)) continue;
+    rmSync(join(screenshotsDir, name));
+    pruned.push(name);
+  }
+  return pruned;
+}
+
+export interface PruneResult {
+  pruned: string[];
+  curationRemoved: boolean;
+}
+
+/**
+ * Prune stale screenshots for a project and, if anything was pruned, delete the
+ * now-stale curation.json (it references shots that may no longer exist).
+ * `projectOutDir` is out/<project>; screenshots live in its screenshots/ subdir.
+ */
+export function pruneStaleOutputs(
+  projectOutDir: string,
+  expectedFilenames: string[],
+): PruneResult {
+  const pruned = pruneStaleScreenshots(
+    join(projectOutDir, "screenshots"),
+    expectedFilenames,
+  );
+  let curationRemoved = false;
+  if (pruned.length > 0) {
+    const curationPath = join(projectOutDir, "curation.json");
+    if (existsSync(curationPath)) {
+      rmSync(curationPath);
+      curationRemoved = true;
+    }
+  }
+  return { pruned, curationRemoved };
 }
 
 /** The methods captureShot drives — kept narrow so tests can stub a fake page. */
@@ -58,28 +126,33 @@ export async function captureShot(
   index: number,
   baseUrl: string,
   outDir: string,
+  defaults: ShotDefaults = {},
 ): Promise<ShotCaptureResult> {
+  const settings = resolveShotSettings(shot, defaults);
   const url = new URL(shot.path, baseUrl).href;
 
   let warning: string | undefined;
   try {
-    await page.goto(url, { waitUntil: shot.waitUntil, timeout: shot.timeoutMs });
+    await page.goto(url, {
+      waitUntil: settings.waitUntil,
+      timeout: settings.timeoutMs,
+    });
   } catch (err) {
     // Recover only if the page actually loaded a document; otherwise this is a
     // genuine navigation failure and should propagate.
     if (!(await pageHasDocument(page))) {
       throw err instanceof Error ? err : new Error(String(err));
     }
-    warning = `navigation wait "${shot.waitUntil}" exceeded ${shot.timeoutMs}ms; captured the page as-is`;
+    warning = `navigation wait "${settings.waitUntil}" exceeded ${settings.timeoutMs}ms; captured the page as-is`;
   }
 
-  if (shot.waitFor) {
-    await page.waitForSelector(shot.waitFor, { timeout: shot.timeoutMs });
+  if (settings.waitFor) {
+    await page.waitForSelector(settings.waitFor, { timeout: settings.timeoutMs });
   }
-  if (shot.delayMs) await page.waitForTimeout(shot.delayMs);
+  if (settings.delayMs) await page.waitForTimeout(settings.delayMs);
 
-  const file = join(outDir, `${pad2(index)}-${shot.id}.png`);
-  await page.screenshot({ path: file, fullPage: shot.fullPage });
+  const file = join(outDir, screenshotFilename(index, shot.id));
+  await page.screenshot({ path: file, fullPage: settings.fullPage });
 
   return { url, file, warning };
 }
@@ -104,8 +177,20 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const outDir = resolve("out", project, "screenshots");
+  const projectOutDir = resolve("out", project);
+  const outDir = join(projectOutDir, "screenshots");
   mkdirSync(outDir, { recursive: true });
+
+  // Prune screenshots left over from a previous run (renamed/reordered/removed
+  // shots) before capturing, so curation never sees an orphan.
+  const expected = manifest.shots.map((s, i) => screenshotFilename(i + 1, s.id));
+  const { pruned, curationRemoved } = pruneStaleOutputs(projectOutDir, expected);
+  for (const name of pruned) console.log(`pruned stale screenshot: ${name}`);
+  if (curationRemoved) {
+    console.log(
+      "removed stale curation.json — re-run curate after capture to regenerate it",
+    );
+  }
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
@@ -125,6 +210,7 @@ async function main(): Promise<void> {
         i + 1,
         manifest.baseUrl,
         outDir,
+        manifest.defaults,
       );
       if (warning) {
         warned.push(shot.id);

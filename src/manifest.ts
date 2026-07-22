@@ -3,6 +3,34 @@ import { resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
+/** Allowed navigation-wait values. See Playwright page.goto waitUntil. */
+export const WAIT_UNTIL_VALUES = ["load", "domcontentloaded", "networkidle"] as const;
+export type WaitUntil = (typeof WAIT_UNTIL_VALUES)[number];
+
+/**
+ * Per-shot browser/capture settings. All optional here: a missing value falls
+ * back to the manifest `defaults`, then to a built-in default, resolved by
+ * resolveShotSettings — so we must be able to tell "unset" apart from an
+ * explicit value, which is why none of these carry a schema-level default.
+ */
+const captureFields = {
+  /**
+   * When navigation is considered done. Prefer "domcontentloaded" (plus
+   * waitFor/delayMs) for pages with long-lived connections — streaming,
+   * polling, or websockets — since "networkidle" never settles and is
+   * discouraged by Playwright. Built-in default: "load".
+   */
+  waitUntil: z.enum(WAIT_UNTIL_VALUES).optional(),
+  /** Navigation/selector wait budget in milliseconds. Built-in default: 30000. */
+  timeoutMs: z.number().int().positive().optional(),
+  /** Optional CSS selector to await before screenshotting. */
+  waitFor: z.string().optional(),
+  /** Optional extra settle time in milliseconds after load. */
+  delayMs: z.number().int().nonnegative().optional(),
+  /** Capture the full scrollable page rather than just the viewport. Built-in default: false. */
+  fullPage: z.boolean().optional(),
+};
+
 /** A single screen to capture. */
 export const ShotSchema = z.object({
   /** Slug used in output filenames: lowercase letters, numbers and hyphens only. */
@@ -16,25 +44,43 @@ export const ShotSchema = z.object({
   path: z.string(),
   /** Human-readable caption for the shot. */
   caption: z.string(),
-  /**
-   * When navigation is considered done. Defaults to "load". Prefer
-   * "domcontentloaded" (plus waitFor/delayMs) for pages with long-lived
-   * connections — streaming, polling, or websockets — since "networkidle"
-   * never settles and is discouraged by Playwright.
-   */
-  waitUntil: z
-    .enum(["load", "domcontentloaded", "networkidle"])
-    .default("load"),
-  /** Navigation/selector wait budget in milliseconds. */
-  timeoutMs: z.number().int().positive().default(30000),
-  /** Optional CSS selector to await before screenshotting. */
-  waitFor: z.string().optional(),
-  /** Optional extra settle time in milliseconds after load. */
-  delayMs: z.number().int().nonnegative().optional(),
-  /** Capture the full scrollable page rather than just the viewport. */
-  fullPage: z.boolean().default(false),
+  ...captureFields,
 });
 export type Shot = z.infer<typeof ShotSchema>;
+
+/**
+ * Manifest-level capture defaults, applied to every shot that does not set its
+ * own value. Same fields and constraints as the per-shot capture settings.
+ */
+export const ShotDefaultsSchema = z.object(captureFields);
+export type ShotDefaults = z.infer<typeof ShotDefaultsSchema>;
+
+/** Fully-resolved capture settings for one shot. */
+export interface ResolvedShotSettings {
+  waitUntil: WaitUntil;
+  timeoutMs: number;
+  waitFor?: string;
+  delayMs?: number;
+  fullPage: boolean;
+}
+
+/**
+ * Resolve a shot's capture settings. Precedence per field: an explicit per-shot
+ * value wins, else the manifest default, else the built-in default. Pure and
+ * exported so capture reads settings through this rather than off the shot.
+ */
+export function resolveShotSettings(
+  shot: Shot,
+  defaults: ShotDefaults = {},
+): ResolvedShotSettings {
+  return {
+    waitUntil: shot.waitUntil ?? defaults.waitUntil ?? "load",
+    timeoutMs: shot.timeoutMs ?? defaults.timeoutMs ?? 30000,
+    waitFor: shot.waitFor ?? defaults.waitFor,
+    delayMs: shot.delayMs ?? defaults.delayMs,
+    fullPage: shot.fullPage ?? defaults.fullPage ?? false,
+  };
+}
 
 /** Brand tokens used later by the render layer. */
 export const BrandSchema = z.object({
@@ -60,6 +106,8 @@ export const ManifestSchema = z
     /** Where the manual login flow should start (path or full URL). Defaults to baseUrl. */
     loginUrl: z.string().optional(),
     brand: BrandSchema.default({}),
+    /** Capture defaults applied to every shot unless the shot overrides them. */
+    defaults: ShotDefaultsSchema.default({}),
     shots: z.array(ShotSchema).min(1, "at least one shot is required"),
   })
   .refine(

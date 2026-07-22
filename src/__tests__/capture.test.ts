@@ -1,6 +1,19 @@
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
-import { captureShot } from "../capture.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  captureShot,
+  pruneStaleOutputs,
+  pruneStaleScreenshots,
+  screenshotFilename,
+} from "../capture.js";
 import { ShotSchema, type Shot } from "../manifest.js";
 
 /** A stub Page with vi.fn() for every method captureShot touches. */
@@ -141,5 +154,110 @@ describe("captureShot", () => {
     await expect(captureShot(page, shot(), 1, baseUrl, outDir)).rejects.toThrow(
       "screenshot failed",
     );
+  });
+
+  describe("manifest defaults", () => {
+    it("applies a manifest default when the shot omits the field", async () => {
+      const page = stubPage();
+      await captureShot(page, shot(), 1, baseUrl, outDir, {
+        delayMs: 2000,
+        waitUntil: "domcontentloaded",
+      });
+      expect(page.waitForTimeout).toHaveBeenCalledWith(2000);
+      expect(page.goto).toHaveBeenCalledWith(
+        "https://myapp.example.com/dashboard",
+        { waitUntil: "domcontentloaded", timeout: 30000 },
+      );
+    });
+
+    it("lets a per-shot value override the manifest default", async () => {
+      const page = stubPage();
+      await captureShot(
+        page,
+        shot({ delayMs: 500, waitUntil: "load" }),
+        1,
+        baseUrl,
+        outDir,
+        { delayMs: 2000, waitUntil: "domcontentloaded" },
+      );
+      expect(page.waitForTimeout).toHaveBeenCalledWith(500);
+      expect(page.goto).toHaveBeenCalledWith(
+        "https://myapp.example.com/dashboard",
+        { waitUntil: "load", timeout: 30000 },
+      );
+    });
+  });
+});
+
+describe("pruneStaleScreenshots", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "reeltreat-prune-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("removes orphan pngs, keeps expected ones, and ignores non-png files", () => {
+    writeFileSync(join(dir, "01-home.png"), "keep");
+    writeFileSync(join(dir, "02-old.png"), "orphan");
+    writeFileSync(join(dir, "notes.txt"), "not a png");
+
+    const pruned = pruneStaleScreenshots(dir, ["01-home.png"]);
+
+    expect(pruned).toEqual(["02-old.png"]);
+    expect(existsSync(join(dir, "01-home.png"))).toBe(true);
+    expect(existsSync(join(dir, "02-old.png"))).toBe(false);
+    expect(existsSync(join(dir, "notes.txt"))).toBe(true); // untouched
+  });
+
+  it("no-ops on an empty directory", () => {
+    expect(pruneStaleScreenshots(dir, ["01-home.png"])).toEqual([]);
+  });
+
+  it("no-ops on a missing directory", () => {
+    expect(pruneStaleScreenshots(join(dir, "nope"), ["01-home.png"])).toEqual([]);
+  });
+
+  it("uses the same filename scheme capture writes", () => {
+    expect(screenshotFilename(3, "dashboard")).toBe("03-dashboard.png");
+  });
+});
+
+describe("pruneStaleOutputs", () => {
+  let projectOutDir: string;
+  let shotsDir: string;
+
+  beforeEach(() => {
+    projectOutDir = mkdtempSync(join(tmpdir(), "reeltreat-outputs-"));
+    shotsDir = join(projectOutDir, "screenshots");
+    mkdirSync(shotsDir, { recursive: true });
+  });
+  afterEach(() => {
+    rmSync(projectOutDir, { recursive: true, force: true });
+  });
+
+  it("deletes curation.json when something was pruned", () => {
+    writeFileSync(join(shotsDir, "01-home.png"), "keep");
+    writeFileSync(join(shotsDir, "02-old.png"), "orphan");
+    writeFileSync(join(projectOutDir, "curation.json"), "{}");
+
+    const result = pruneStaleOutputs(projectOutDir, ["01-home.png"]);
+
+    expect(result.pruned).toEqual(["02-old.png"]);
+    expect(result.curationRemoved).toBe(true);
+    expect(existsSync(join(projectOutDir, "curation.json"))).toBe(false);
+  });
+
+  it("keeps curation.json when nothing was pruned", () => {
+    writeFileSync(join(shotsDir, "01-home.png"), "keep");
+    writeFileSync(join(projectOutDir, "curation.json"), "{}");
+
+    const result = pruneStaleOutputs(projectOutDir, ["01-home.png"]);
+
+    expect(result.pruned).toEqual([]);
+    expect(result.curationRemoved).toBe(false);
+    expect(existsSync(join(projectOutDir, "curation.json"))).toBe(true);
   });
 });

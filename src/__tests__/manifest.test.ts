@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ManifestSchema } from "../manifest.js";
+import { ManifestSchema, ShotSchema, resolveShotSettings } from "../manifest.js";
 
 /** A minimal valid manifest object, spread and overridden per test. */
 function base(): Record<string, unknown> {
@@ -18,9 +18,12 @@ describe("ManifestSchema", () => {
 
     const m = result.data;
     expect(m.viewport).toEqual({ width: 1440, height: 900 });
-    expect(m.shots[0].fullPage).toBe(false);
-    expect(m.shots[0].waitUntil).toBe("load");
-    expect(m.shots[0].timeoutMs).toBe(30000);
+    // Per-shot capture fields carry no schema-level default now; built-ins are
+    // applied by resolveShotSettings at capture time, so they are unset here.
+    expect(m.shots[0].fullPage).toBeUndefined();
+    expect(m.shots[0].waitUntil).toBeUndefined();
+    expect(m.shots[0].timeoutMs).toBeUndefined();
+    expect(m.defaults).toEqual({});
     expect(m.brand).toEqual({});
   });
 
@@ -137,5 +140,94 @@ describe("ManifestSchema", () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.issues.some((i) => i.path.includes("delayMs"))).toBe(true);
+  });
+
+  describe("defaults block", () => {
+    it("accepts a valid defaults block with the same fields as a shot", () => {
+      const result = ManifestSchema.safeParse({
+        ...base(),
+        defaults: {
+          waitUntil: "domcontentloaded",
+          timeoutMs: 5000,
+          delayMs: 2000,
+          waitFor: "#app-ready",
+          fullPage: true,
+        },
+      });
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.defaults).toEqual({
+        waitUntil: "domcontentloaded",
+        timeoutMs: 5000,
+        delayMs: 2000,
+        waitFor: "#app-ready",
+        fullPage: true,
+      });
+    });
+
+    it("enforces the same constraints as per-shot fields", () => {
+      for (const bad of [
+        { waitUntil: "commit" },
+        { timeoutMs: 0 },
+        { timeoutMs: -1 },
+        { delayMs: -5 },
+      ]) {
+        const result = ManifestSchema.safeParse({ ...base(), defaults: bad });
+        expect(result.success).toBe(false);
+      }
+    });
+  });
+});
+
+describe("resolveShotSettings", () => {
+  const shot = (overrides: Record<string, unknown> = {}) =>
+    ShotSchema.parse({ id: "a", path: "/a", caption: "A", ...overrides });
+
+  it("falls back to built-in defaults when nothing is set (behaves as today)", () => {
+    expect(resolveShotSettings(shot())).toEqual({
+      waitUntil: "load",
+      timeoutMs: 30000,
+      waitFor: undefined,
+      delayMs: undefined,
+      fullPage: false,
+    });
+  });
+
+  it("uses the manifest default when the shot omits the field", () => {
+    const defaults = {
+      waitUntil: "domcontentloaded" as const,
+      timeoutMs: 5000,
+      delayMs: 2000,
+      waitFor: "#x",
+      fullPage: true,
+    };
+    expect(resolveShotSettings(shot(), defaults)).toEqual(defaults);
+  });
+
+  it("lets an explicit per-shot value win over the manifest default, per field", () => {
+    const defaults = {
+      waitUntil: "domcontentloaded" as const,
+      timeoutMs: 5000,
+      delayMs: 2000,
+      waitFor: "#default",
+      fullPage: true,
+    };
+    const resolved = resolveShotSettings(
+      shot({
+        waitUntil: "networkidle",
+        timeoutMs: 1000,
+        delayMs: 0, // a real 0 must beat the default, not be treated as unset
+        waitFor: "#shot",
+        fullPage: false,
+      }),
+      defaults,
+    );
+    expect(resolved).toEqual({
+      waitUntil: "networkidle",
+      timeoutMs: 1000,
+      delayMs: 0,
+      waitFor: "#shot",
+      fullPage: false,
+    });
   });
 });
