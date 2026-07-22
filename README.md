@@ -19,6 +19,34 @@ npm run capture -- myapp   # screenshot every shot in projects/myapp.yaml
 npm run curate  -- myapp   # AI-curate the shots (add --force to re-run)
 ```
 
+### Logging in
+
+`login` opens a browser, waits while you sign in to your app, then saves the
+session to `auth/myapp.json`. `capture` reuses that saved session — both login
+modes below produce the same file, so the rest of the pipeline is identical.
+
+There are two modes, selected with `--mode` (default `stealth`):
+
+```sh
+npm run login -- myapp                 # stealth (default)
+npm run login -- myapp --mode attach   # attach to your own Chrome
+```
+
+- **stealth** — drives your installed Google Chrome (via the `chrome` channel)
+  from a per-project profile under `auth/profiles/<project>/`, with Playwright's
+  automation fingerprint removed. Requires Google Chrome to be installed.
+- **attach** — the fallback for when an identity provider still refuses to sign
+  in on an automated browser (e.g. a "this browser may not be secure" message).
+  You start your own everyday Chrome with remote debugging enabled, sign in
+  there, and reeltreat attaches over CDP just to read the session — so from the
+  provider's side it's an ordinary Chrome window. `login --mode attach` prints
+  the exact command for your OS; in short, quit Chrome fully, then relaunch it
+  with `--remote-debugging-port=9222` and sign in before pressing Enter. reeltreat
+  never closes your browser.
+
+  This is a normal user signing in to their own application — attach just avoids
+  a session being rejected for looking automated.
+
 ### Generating a manifest
 
 `init` introspects a local app repo and writes `projects/<project>.yaml` with

@@ -50,6 +50,8 @@ async function main(): Promise<void> {
   assertManifestReady(project);
   const manifest = loadManifest(project);
 
+  // Unchanged across login modes: both stealth and attach login write
+  // auth/<project>.json, so capture consumes the same file either way.
   const statePath = resolve("auth", `${project}.json`);
   if (!existsSync(statePath)) {
     console.error(
