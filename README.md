@@ -17,7 +17,11 @@ npm run init    -- myapp --repo ../myapp   # generate projects/myapp.yaml from a
 npm run login   -- myapp   # one-time: log in, session is saved to auth/myapp.json
 npm run capture -- myapp   # screenshot every shot in projects/myapp.yaml
 npm run curate  -- myapp   # AI-curate the shots (add --force to re-run)
+npm run render  -- myapp   # render the branded video + poster (default 15s)
 ```
+
+Everything lands under `out/<project>/`: `screenshots/`, `curation.json`,
+one `demo-<N>s.mp4` per rendered duration, and `poster.png`.
 
 ### Logging in
 
@@ -109,6 +113,40 @@ with the same `NN-<id>.png` naming as a captured shot — so curation and
 rendering treat it identically. Keep these files under **`manual/<project>/`** at
 the repo root; that folder is gitignored. If a manifest has only image shots,
 `capture` runs without launching a browser or needing a saved login.
+
+### Rendering
+
+`render` builds the video from your captured screenshots and cached curation —
+an animated title card, Ken Burns motion (subtle pan/zoom) over each screen with
+crossfades and callout chips, plus a hero `poster.png`. All colors and fonts come
+from your manifest's `brand` tokens, with neutral fallbacks when they're unset.
+
+```sh
+npm run render -- myapp                    # 15s reel + poster
+npm run render -- myapp --duration 30      # a specific duration tier
+npm run render -- myapp --all              # every tier in curation.json
+npm run render -- myapp --duration 15 --fps 60
+```
+
+- `--duration N` picks the cut to render. Curation produces 5s, 15s, 30s, and
+  45s cuts; the tier must exist in `out/<project>/curation.json` (run `curate`
+  first). Default is 15.
+- `--all` renders every tier present in the curation.
+- `--fps N` sets the frame rate (default 30).
+
+Outputs go to `out/<project>/`: `demo-<N>s.mp4` (h264) per tier and a single
+`poster.png`. Each run prints the output paths, their sizes, and the total time.
+
+Scene timing follows the curation's per-shot seconds, capped at 5s per scene
+(any excess is redistributed) and floored at 1.2s (if a cut has more shots than
+fit at that minimum, the lowest-ranked are dropped and logged). The title card
+plus scenes always sum to exactly the requested duration.
+
+To preview and tweak compositions interactively, open Remotion Studio:
+
+```sh
+npm run studio
+```
 
 ### Generating a manifest
 

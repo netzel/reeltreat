@@ -5,6 +5,10 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "types": ["node"],
+    // JSX transform for the Remotion layer. Only affects .tsx files, so the
+    // existing .ts CLI code is untouched; the render/ compositions live under
+    // remotion/ with their own tsconfig (bundler resolution) — see remotion/tsconfig.json.
+    "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

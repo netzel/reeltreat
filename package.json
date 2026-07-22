@@ -9,19 +9,32 @@
     "login": "tsx src/login.ts",
     "capture": "tsx src/capture.ts",
     "curate": "tsx src/curate.ts",
+    "render": "tsx src/render.ts",
+    "studio": "remotion studio remotion/index.ts",
+    "typecheck": "tsc --noEmit && tsc -p remotion/tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "keywords": [],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.5",
+    "@remotion/bundler": "^4.0.496",
+    "@remotion/cli": "^4.0.496",
+    "@remotion/renderer": "^4.0.496",
     "dotenv": "^17.4.2",
     "playwright": "^1.61.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "^4.0.496",
     "sharp": "^0.35.3",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "@remotion/player": "^4.0.496",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^29.1.1",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

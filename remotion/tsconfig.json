@@ -1,0 +1,22 @@
+{
+  // The render layer is bundled by Remotion's webpack, not run through Node's
+  // ESM loader, so it uses bundler module resolution and extensionless relative
+  // imports — the idiom Remotion's docs and its own bundler expect. This is kept
+  // separate from the root tsconfig (NodeNext, for the CLI) on purpose: mixing
+  // NodeNext's mandatory ".js" import extensions with the webpack bundler is a
+  // known source of resolution friction. `npm run typecheck` runs both configs.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true
+  },
+  "include": ["."]
+}
