@@ -42,7 +42,6 @@ interface StudioState {
   theme: Theme;
   tier: Tier;
   selClip: string;
-  playing: boolean;
   connectMode: ConnectMode;
   authMode: AuthMode;
   authStep: AuthStep;
@@ -71,7 +70,6 @@ interface StudioActions {
   setTheme: (t: Theme) => void;
   setTier: (t: Tier) => void;
   selectClip: (id: string) => void;
-  togglePlay: () => void;
   setConnectMode: (m: ConnectMode) => void;
   setAuthMode: (m: AuthMode) => void;
   setAuthStep: (s: AuthStep) => void;
@@ -106,7 +104,6 @@ const INITIAL: StudioState = {
   theme: "dark",
   tier: "15",
   selClip: "",
-  playing: false,
   connectMode: "repo",
   authMode: "stealth",
   authStep: "idle",
@@ -162,7 +159,6 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       setTheme: (theme) => patch({ theme }),
       setTier: (tier) => patch({ tier }),
       selectClip: (selClip) => patch({ selClip }),
-      togglePlay: () => setState((s) => ({ ...s, playing: !s.playing })),
       setConnectMode: (connectMode) => patch({ connectMode }),
       setAuthMode: (authMode) => patch({ authMode }),
       setAuthStep: (authStep) => patch({ authStep }),

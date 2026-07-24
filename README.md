@@ -238,6 +238,10 @@ What the UI gives you over the CLI:
   are saved automatically before a render.
 - **Live progress.** Capture and render stream real per-shot / per-frame progress
   into the UI, and the finished video plays inline with download links.
+- **Add manual shots from the browser.** On the Manifest screen, upload an image
+  for a state automation can't reach; it's saved into the project's `manual/`
+  folder and appended to the manifest as an `image` shot (the manifest's comments
+  and formatting are preserved). Capture then normalizes it like any other shot.
 
 The Studio is a standalone Vite app under `studio/`; the bridge lives in
 `src/bridge/`. In dev, Vite proxies `/api` and `/media` to the bridge.

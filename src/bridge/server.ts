@@ -116,6 +116,21 @@ export const ROUTES: Route[] = [
       sendJson(res, 200, svc.saveManifestText(params.project, String(body.text ?? ""))),
   },
   {
+    method: "POST",
+    pattern: /^\/api\/projects\/(?<project>[^/]+)\/manual$/,
+    handler: ({ res, params, body }) =>
+      sendJson(
+        res,
+        200,
+        svc.addManualShot(params.project, {
+          id: String(body.id ?? ""),
+          caption: String(body.caption ?? ""),
+          filename: String(body.filename ?? ""),
+          dataBase64: String(body.dataBase64 ?? ""),
+        }),
+      ),
+  },
+  {
     method: "GET",
     pattern: /^\/api\/projects\/(?<project>[^/]+)\/curation$/,
     handler: ({ res, params }) => sendJson(res, 200, { curation: svc.getCuration(params.project) }),
