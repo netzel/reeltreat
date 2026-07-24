@@ -203,27 +203,33 @@ Scene timing follows the curation's per-shot seconds, capped at 5s per scene
 fit at that minimum, the lowest-ranked are dropped and logged). The title card
 plus scenes always sum to exactly the requested duration.
 
-To preview and tweak compositions interactively, open Remotion Studio:
+To preview and tweak the raw Remotion compositions interactively, open Remotion
+Studio:
 
 ```sh
-npm run studio
+npm run remotion:studio
 ```
 
 ## Studio — the web UI
 
 Everything above is available from a local web UI that drives the whole pipeline —
-create a project, capture, curate, edit, and render — without touching the CLI or
-`curation.json`. Because a browser can't run Playwright, call Anthropic, or invoke
+create a project, capture, crop, curate, edit, and render — without touching the CLI
+or `curation.json`. Because a browser can't run Playwright, call Anthropic, or invoke
 Remotion directly, the UI talks to a small **bridge** server that runs the same
-`src/*` code the CLI does. Start both:
+`src/*` code the CLI does.
+
+**Run it with one command** (from the repo root — first time, install both:
+`npm install && npm --prefix studio install`):
 
 ```sh
-npm run bridge            # terminal 1 — the local bridge (127.0.0.1:5179)
-cd studio && npm run dev  # terminal 2 — the UI (opens http://localhost:5175)
+npm run studio            # starts the bridge + UI; opens http://localhost:5175
 ```
 
-The bridge binds to localhost only and never listens on a network — it executes
-captures and renders and writes files on your machine, so it must not be exposed.
+That launches the bridge (127.0.0.1:5179) and the Vite dev server together and shuts
+both down on Ctrl-C. Prefer two terminals? `npm run bridge` in one and
+`npm --prefix studio run dev` in the other does the same thing. The bridge binds to
+localhost only and never listens on a network — it executes captures and renders and
+writes files on your machine, so it must not be exposed.
 
 What the UI gives you over the CLI:
 
@@ -242,9 +248,18 @@ What the UI gives you over the CLI:
   for a state automation can't reach; it's saved into the project's `manual/`
   folder and appended to the manifest as an `image` shot (the manifest's comments
   and formatting are preserved). Capture then normalizes it like any other shot.
+- **Crop a captured shot.** On the Capture screen, hover any captured thumbnail and
+  click **✂ Crop** to reframe it — drag/resize the crop rectangle (aspect presets
+  included) and Apply. Cropping is **non-destructive**: the crop is stored as a
+  normalized rectangle in the project's `edit.json` and applied at render time (the
+  region becomes the full frame), so the original screenshot on disk is never
+  altered, **Reset crop** restores it in one click, and re-capturing or re-curating
+  never wipes your crop.
 
 The Studio is a standalone Vite app under `studio/`; the bridge lives in
-`src/bridge/`. In dev, Vite proxies `/api` and `/media` to the bridge.
+`src/bridge/`. In dev, Vite proxies `/api` and `/media` to the bridge. Creative
+edits that aren't part of the AI curation (crops today) live in a per-project
+`edit.json`, layered over `curation.json` at render time.
 
 ### Generating a manifest
 

@@ -347,7 +347,7 @@ function main(): void {
   server.listen(port, HOST, () => {
     console.log(`reeltreat bridge listening on http://${HOST}:${port}`);
     console.log(`serving projects from ${projectDir("<project>")}/..`);
-    console.log("start the UI in another terminal:  cd studio && npm run dev");
+    console.log("tip: `npm run studio` (repo root) starts this bridge + the UI together");
   });
 }
 
