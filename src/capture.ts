@@ -302,6 +302,14 @@ export interface CaptureRunResult {
   browserLaunched: boolean;
 }
 
+/** A single shot's outcome, emitted as it completes (for live progress). */
+export interface ShotProgress {
+  id: string;
+  index: number;
+  kind: "browser" | "manual";
+  status: "captured" | "warning" | "failed";
+}
+
 export interface CaptureProjectOptions {
   manifest: Manifest;
   /** Base dir relative image paths resolve against (the project folder, projects/<project>/). */
@@ -310,6 +318,8 @@ export interface CaptureProjectOptions {
   outDir: string;
   /** Saved Playwright session, used only when there is a browser shot. */
   statePath: string;
+  /** Called after each shot resolves, so a caller can stream progress. */
+  onProgress?: (p: ShotProgress) => void;
 }
 
 /**
@@ -360,6 +370,12 @@ export async function captureProject(
           console.warn(`WARN ${shot.id}: ${r.aspectWarning}`);
         }
         results.push({ id: shot.id, file: r.file, kind: "manual" });
+        opts.onProgress?.({
+          id: shot.id,
+          index,
+          kind: "manual",
+          status: r.aspectWarning ? "warning" : "captured",
+        });
       } else {
         if (!page) {
           throw new Error(`internal: no browser page for shot "${shot.id}"`);
@@ -378,11 +394,23 @@ export async function captureProject(
         }
         console.log(`${shot.id}  ${url}  ->  ${file}`);
         results.push({ id: shot.id, file, kind: "browser" });
+        opts.onProgress?.({
+          id: shot.id,
+          index,
+          kind: "browser",
+          status: warning ? "warning" : "captured",
+        });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`FAILED ${shot.id}: ${msg}`);
       failed.push(shot.id);
+      opts.onProgress?.({
+        id: shot.id,
+        index,
+        kind: isImageShot(shot) ? "manual" : "browser",
+        status: "failed",
+      });
     }
   }
 

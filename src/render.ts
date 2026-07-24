@@ -14,7 +14,7 @@ import {
   screenshotPathsForManifest,
   type Reel,
 } from "./reel.js";
-import { curationPath, projectDir, rendersDir } from "./paths.js";
+import { curationPath, projectDir, renderRunDir, renderRunId } from "./paths.js";
 import { CROSSFADE_FRAMES, type PosterProps, type ReelProps } from "../remotion/types.js";
 import { withEsbuildTsconfig } from "../remotion/webpack-override.js";
 
@@ -92,6 +92,183 @@ function reelToProps(reel: Reel, logoSrc: string | undefined): ReelProps {
   };
 }
 
+/** A progress event emitted during a render, consumed by the CLI and the bridge. */
+export type RenderProgress =
+  | { phase: "bundle" }
+  | { phase: "render"; tier: number; frames: number; progress: number }
+  | { phase: "poster" }
+  | { phase: "done" };
+
+/** One produced file from a render run. */
+export interface RenderOutput {
+  kind: "video" | "poster";
+  /** Duration tier for a video; unset for the poster. */
+  tier?: number;
+  path: string;
+  bytes: number;
+}
+
+export interface RenderResult {
+  /** Unique id for this run; also the name of its renders/ subfolder. */
+  runId: string;
+  /** Absolute renders/<runId>/ directory the outputs were written to. */
+  dir: string;
+  /** Duration tiers rendered, ascending. */
+  tiers: number[];
+  outputs: RenderOutput[];
+}
+
+export interface RenderOptions {
+  project: string;
+  /** Single tier to render when `all` is false. Default 15. */
+  duration?: number;
+  /** Render every tier present in the curation instead of just `duration`. */
+  all?: boolean;
+  /** Frame rate. Default 30. */
+  fps?: number;
+  /** Progress callback for the CLI/bridge to surface. */
+  onProgress?: (p: RenderProgress) => void;
+  /** Clock for the run id — injectable so tests are deterministic. Default now. */
+  now?: Date;
+}
+
+/**
+ * Render a project's reel(s) + poster into a fresh renders/<runId>/ folder and
+ * return the produced files. Importable (no argv/exit/bundle-caching concerns in
+ * the caller) so both the CLI and the Studio bridge drive it the same way. Each
+ * call writes to a unique run folder, so previously rendered videos are never
+ * overwritten. Assumes the manifest is ready and curation exists; the caller is
+ * responsible for those pre-flight checks (the CLI calls assertManifestReady,
+ * the bridge returns a structured error).
+ */
+export async function renderProject(opts: RenderOptions): Promise<RenderResult> {
+  const project = opts.project;
+  const fps = opts.fps ?? DEFAULT_FPS;
+  const duration = opts.duration ?? DEFAULT_DURATION;
+  const emit = opts.onProgress ?? (() => {});
+
+  const manifest = loadManifest(project);
+  const curation = loadCuration(project, manifest);
+
+  // Escape hatch for offline / locked-down environments: point Remotion at an
+  // already-installed Chrome/Chromium instead of letting it download its headless
+  // shell (which needs network access to remotion.media). Unset by default.
+  const browserExecutable = process.env.REMOTION_BROWSER_EXECUTABLE || undefined;
+
+  const projDir = projectDir(project);
+  const runId = renderRunId(opts.now ?? new Date());
+  const outDir = renderRunDir(project, runId);
+  mkdirSync(outDir, { recursive: true });
+  // The tool's own repo root, used only to locate the Remotion bundle entry —
+  // distinct from projDir (the project's asset folder).
+  const repoRoot = resolve(".");
+
+  // Guard before the expensive bundle: every captured screenshot must match the
+  // manifest viewport. A file left from an older viewport setting would jump in
+  // size and letterbox in the full-bleed scenes. Only check files that exist —
+  // a genuinely missing shot is reported later by resolveShotImagePath.
+  const screenshots = screenshotPathsForManifest(manifest, projDir)
+    .map((s) => s.path)
+    .filter((p) => existsSync(p));
+  await assertScreenshotDimensions(screenshots, manifest.viewport, async (p) => {
+    const meta = await sharp(p).metadata();
+    if (!meta.width || !meta.height) {
+      throw new Error(`could not read image dimensions: ${p}`);
+    }
+    return { width: meta.width, height: meta.height };
+  });
+
+  const tiers = opts.all
+    ? Object.keys(curation.cuts).map(Number).sort((a, b) => a - b)
+    : [duration];
+
+  // Resolve the brand logo once (if any), reused by every reel and the poster.
+  let logoSrc: string | undefined;
+  if (manifest.brand.logoPath) {
+    const logoPath = isAbsolute(manifest.brand.logoPath)
+      ? manifest.brand.logoPath
+      : resolve(projDir, manifest.brand.logoPath);
+    if (existsSync(logoPath)) logoSrc = toDataUri(logoPath);
+    else console.warn(`brand.logoPath not found at ${logoPath}; rendering without a logo`);
+  }
+
+  // Bundle once — reused across every tier and the poster (bundling per render
+  // is an anti-pattern).
+  emit({ phase: "bundle" });
+  const serveUrl = await bundle({
+    entryPoint: resolve(repoRoot, "remotion", "index.ts"),
+    webpackOverride: withEsbuildTsconfig,
+  });
+  // Applied to every selectComposition/render call below when set.
+  const browserOpt = browserExecutable ? { browserExecutable } : {};
+
+  const outputs: RenderOutput[] = [];
+
+  for (const tier of tiers) {
+    const reel = buildReel({ manifest, curation, durationSeconds: tier, fps, projectDir: projDir });
+    const inputProps = reelToProps(reel, logoSrc) as unknown as Record<string, unknown>;
+
+    const composition = await selectComposition({ serveUrl, id: "Reel", inputProps, ...browserOpt });
+    const outputLocation = join(outDir, `demo-${tier}s.mp4`);
+
+    await renderMedia({
+      composition,
+      serveUrl,
+      codec: "h264",
+      outputLocation,
+      inputProps,
+      ...browserOpt,
+      onProgress: ({ progress }) =>
+        emit({ phase: "render", tier, frames: composition.durationInFrames, progress }),
+    });
+    outputs.push({
+      kind: "video",
+      tier,
+      path: outputLocation,
+      bytes: statSync(outputLocation).size,
+    });
+  }
+
+  // Hero poster still (duration-independent, rendered once).
+  const heroPath = resolveShotImagePath(manifest, curation.heroShotId, projDir);
+  const posterProps: PosterProps = {
+    fps,
+    width: manifest.viewport.width,
+    height: manifest.viewport.height,
+    appName: manifest.name,
+    tagline: curation.tagline,
+    brand: {
+      primaryColor: manifest.brand.primaryColor,
+      accentColor: manifest.brand.accentColor,
+      font: manifest.brand.font,
+    },
+    src: toDataUri(heroPath),
+    logoSrc,
+  };
+  const posterInput = posterProps as unknown as Record<string, unknown>;
+  const posterComposition = await selectComposition({
+    serveUrl,
+    id: "Poster",
+    inputProps: posterInput,
+    ...browserOpt,
+  });
+  const posterOut = join(outDir, "poster.png");
+  emit({ phase: "poster" });
+  await renderStill({
+    composition: posterComposition,
+    serveUrl,
+    output: posterOut,
+    frame: 0,
+    inputProps: posterInput,
+    imageFormat: "png",
+    ...browserOpt,
+  });
+  outputs.push({ kind: "poster", path: posterOut, bytes: statSync(posterOut).size });
+
+  emit({ phase: "done" });
+  return { runId, dir: outDir, tiers, outputs };
+}
+
 interface RenderArgs {
   project: string;
   duration: number;
@@ -121,116 +298,35 @@ async function main(): Promise<void> {
   const started = Date.now();
   const { project, duration, fps, all } = parseArgs(process.argv);
 
+  // CLI-only pre-flight: exit loudly on an unresolved manifest. The bridge does
+  // its own readiness check instead of exiting the process.
   assertManifestReady(project);
-  const manifest = loadManifest(project);
-  const curation = loadCuration(project, manifest);
 
-  const projDir = projectDir(project);
-  const outDir = rendersDir(project);
-  mkdirSync(outDir, { recursive: true });
-  // The tool's own repo root, used only to locate the Remotion bundle entry —
-  // distinct from projDir (the project's asset folder).
-  const repoRoot = resolve(".");
-
-  // Guard before the expensive bundle: every captured screenshot must match the
-  // manifest viewport. A file left from an older viewport setting would jump in
-  // size and letterbox in the full-bleed scenes. Only check files that exist —
-  // a genuinely missing shot is reported later by resolveShotImagePath.
-  const screenshots = screenshotPathsForManifest(manifest, projDir)
-    .map((s) => s.path)
-    .filter((p) => existsSync(p));
-  await assertScreenshotDimensions(screenshots, manifest.viewport, async (p) => {
-    const meta = await sharp(p).metadata();
-    if (!meta.width || !meta.height) {
-      throw new Error(`could not read image dimensions: ${p}`);
-    }
-    return { width: meta.width, height: meta.height };
-  });
-
-  // Which tiers to render.
-  const tiers = all
-    ? Object.keys(curation.cuts).map(Number).sort((a, b) => a - b)
-    : [duration];
-
-  // Resolve the brand logo once (if any), reused by every reel and the poster.
-  let logoSrc: string | undefined;
-  if (manifest.brand.logoPath) {
-    const logoPath = isAbsolute(manifest.brand.logoPath)
-      ? manifest.brand.logoPath
-      : resolve(projDir, manifest.brand.logoPath);
-    if (existsSync(logoPath)) logoSrc = toDataUri(logoPath);
-    else console.warn(`brand.logoPath not found at ${logoPath}; rendering without a logo`);
-  }
-
-  // Bundle once — reused across every tier and the poster (see /docs/bundle:
-  // bundling per render is an anti-pattern).
-  console.log("bundling Remotion project…");
-  const serveUrl = await bundle({
-    entryPoint: resolve(repoRoot, "remotion", "index.ts"),
-    webpackOverride: withEsbuildTsconfig,
-  });
-
-  const outputs: { path: string; bytes: number }[] = [];
-
-  for (const tier of tiers) {
-    const reel = buildReel({ manifest, curation, durationSeconds: tier, fps, projectDir: projDir });
-    const inputProps = reelToProps(reel, logoSrc) as unknown as Record<string, unknown>;
-
-    const composition = await selectComposition({ serveUrl, id: "Reel", inputProps });
-    const outputLocation = join(outDir, `demo-${tier}s.mp4`);
-
-    console.log(`rendering ${tier}s reel (${composition.durationInFrames} frames)…`);
-    await renderMedia({
-      composition,
-      serveUrl,
-      codec: "h264",
-      outputLocation,
-      inputProps,
-      onProgress: ({ progress }) => {
-        process.stdout.write(`\r  ${tier}s: ${Math.round(progress * 100)}%   `);
-      },
-    });
-    process.stdout.write("\n");
-    outputs.push({ path: outputLocation, bytes: statSync(outputLocation).size });
-  }
-
-  // Hero poster still (duration-independent, rendered once).
-  const heroPath = resolveShotImagePath(manifest, curation.heroShotId, projDir);
-  const posterProps: PosterProps = {
+  let lastTier: number | undefined;
+  const result = await renderProject({
+    project,
+    duration,
+    all,
     fps,
-    width: manifest.viewport.width,
-    height: manifest.viewport.height,
-    appName: manifest.name,
-    tagline: curation.tagline,
-    brand: {
-      primaryColor: manifest.brand.primaryColor,
-      accentColor: manifest.brand.accentColor,
-      font: manifest.brand.font,
+    onProgress: (p) => {
+      if (p.phase === "bundle") console.log("bundling Remotion project…");
+      else if (p.phase === "render") {
+        if (p.tier !== lastTier) {
+          if (lastTier !== undefined) process.stdout.write("\n");
+          console.log(`rendering ${p.tier}s reel (${p.frames} frames)…`);
+          lastTier = p.tier;
+        }
+        process.stdout.write(`\r  ${p.tier}s: ${Math.round(p.progress * 100)}%   `);
+      } else if (p.phase === "poster") {
+        if (lastTier !== undefined) process.stdout.write("\n");
+        console.log("rendering poster…");
+      }
     },
-    src: toDataUri(heroPath),
-    logoSrc,
-  };
-  const posterInput = posterProps as unknown as Record<string, unknown>;
-  const posterComposition = await selectComposition({
-    serveUrl,
-    id: "Poster",
-    inputProps: posterInput,
   });
-  const posterOut = join(outDir, "poster.png");
-  console.log("rendering poster…");
-  await renderStill({
-    composition: posterComposition,
-    serveUrl,
-    output: posterOut,
-    frame: 0,
-    inputProps: posterInput,
-    imageFormat: "png",
-  });
-  outputs.push({ path: posterOut, bytes: statSync(posterOut).size });
 
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-  console.log("\nDone:");
-  for (const o of outputs) console.log(`  ${o.path}  (${formatBytes(o.bytes)})`);
+  console.log(`\nDone (run ${result.runId}):`);
+  for (const o of result.outputs) console.log(`  ${o.path}  (${formatBytes(o.bytes)})`);
   console.log(`\nRendered in ${elapsed}s`);
 }
 

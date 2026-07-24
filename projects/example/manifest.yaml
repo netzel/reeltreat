@@ -6,7 +6,8 @@
 #   captures/       what `capture` writes (browser + normalized manual shots)
 #   curated/        the shots curation picked, in video order (written by `curate`)
 #   curation.json   the cached AI curation
-#   renders/        the finished demo-<N>s.mp4 files and poster.png
+#   renders/        one timestamped subfolder per render run (demo-<N>s.mp4 +
+#                   poster.png) — renders never overwrite each other
 #
 # Copy this folder to projects/<your-project>/ and edit manifest.yaml, then run:
 #   npm run login   -- <your-project>   # one-time: log in, session is saved

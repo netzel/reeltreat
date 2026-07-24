@@ -1,11 +1,42 @@
 import { useStudio } from "../store";
-import { OVERRIDES } from "../data/mock";
 import type { Tier } from "../types";
 
 const TIERS: Tier[] = ["5", "15", "30", "45"];
 
+function mediaRel(project: string, relPath: string): string {
+  return `/media/${encodeURIComponent(project)}/${relPath}`;
+}
+
 export function PreviewScreen() {
-  const { tier, setTier, playing, togglePlay, exportState, startExport, resetExport } = useStudio();
+  const {
+    projectName,
+    curation,
+    tier,
+    setTier,
+    exportState,
+    renderProgress,
+    renderResult,
+    dirty,
+    busy,
+    error,
+    runRender,
+    nav,
+  } = useStudio();
+
+  if (!projectName || !curation) {
+    return (
+      <div style={{ padding: 40, color: "var(--text-muted)" }}>
+        Curate the project first.{" "}
+        <button onClick={() => nav("curate")} style={{ color: "var(--accent)", background: "none", border: "none", cursor: "pointer", fontSize: "inherit" }}>Go to Curate</button>
+      </div>
+    );
+  }
+
+  const rendering = busy === "Rendering";
+  const pct =
+    renderProgress?.phase === "render" ? Math.round((renderProgress.progress ?? 0) * 100) : undefined;
+  const video = renderResult?.outputs.find((o) => o.kind === "video");
+  const poster = renderResult?.outputs.find((o) => o.kind === "poster");
 
   const tierBtn = (t: Tier): React.CSSProperties => ({
     padding: "6px 11px",
@@ -22,94 +53,105 @@ export function PreviewScreen() {
     <div style={{ padding: "22px 24px", maxWidth: 1120, display: "grid", gridTemplateColumns: "1fr 360px", gap: 20, alignItems: "start" }}>
       <div>
         <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
-          <div style={{ position: "relative", aspectRatio: "16 / 9", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-            <div style={{ position: "absolute", inset: 0, background: "repeating-linear-gradient(135deg,#191b22 0 12px,#14161b 12px 24px)", animation: "kb 4s ease-in-out infinite alternate" }} />
-            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "32px 26px 22px", background: "linear-gradient(transparent,rgba(0,0,0,.7))" }}>
-              <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: "#fff", textShadow: "0 2px 12px rgba(0,0,0,.6)" }}>Your product's trailer — rendered in one click.</div>
-            </div>
-            <span style={{ position: "absolute", top: 14, right: 14, fontFamily: "var(--mono)", fontSize: 11, background: "var(--accent)", color: "var(--accent-contrast)", fontWeight: 600, padding: "4px 10px", borderRadius: 999 }}>{tier}s · 30fps</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderTop: "1px solid var(--border)" }}>
-            <button onClick={togglePlay} style={{ width: 40, height: 40, borderRadius: 999, border: "none", background: "var(--accent)", color: "var(--accent-contrast)", fontSize: 15, cursor: "pointer" }}>{playing ? "❚❚" : "▶"}</button>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--text-muted)" }}>0:00 / 0:{tier}</div>
-            <div style={{ flex: 1, height: 6, borderRadius: 999, background: "var(--surface-2)", position: "relative" }}><div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "8%", background: "var(--accent)", borderRadius: 999 }} /></div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {TIERS.map((t) => (
-                <button key={t} onClick={() => setTier(t)} style={tierBtn(t)}>{t}</button>
-              ))}
-            </div>
+          <div style={{ position: "relative", aspectRatio: "16 / 10", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+            {video ? (
+              <video key={video.relPath} src={mediaRel(projectName, video.relPath)} controls poster={poster ? mediaRel(projectName, poster.relPath) : undefined} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#000" }} />
+            ) : poster ? (
+              <img src={mediaRel(projectName, poster.relPath)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+            ) : (
+              <div style={{ color: "var(--text-faint)", fontSize: 13, textAlign: "center", padding: 24 }}>
+                {rendering ? "Rendering…" : "Render to preview the video here."}
+              </div>
+            )}
+            <span style={{ position: "absolute", top: 14, right: 14, fontFamily: "var(--mono)", fontSize: 11, background: "var(--accent)", color: "var(--accent-contrast)", fontWeight: 600, padding: "4px 10px", borderRadius: 999 }}>{tier}s</span>
           </div>
         </section>
 
-        <div style={{ marginTop: 16, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Your overrides</div>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--text-faint)" }}>4 edits over AI</span>
-            <div style={{ flex: 1 }} />
-            <button style={{ padding: "7px 13px", borderRadius: 7, border: "1px solid var(--ai)", background: "rgba(167,139,250,.1)", color: "var(--ai)", fontSize: 12, cursor: "pointer" }}>✦ Reset all to AI defaults</button>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {OVERRIDES.map((ov, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8 }}>
-                <span style={{ width: 7, height: 7, borderRadius: 999, background: "var(--accent)" }} />
-                <span style={{ fontSize: 13, fontWeight: 500 }}>{ov.label}</span>
-                <span style={{ fontSize: 12, color: "var(--text-muted)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ov.detail}</span>
-                <button style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-muted)", fontSize: 11.5, cursor: "pointer" }}>Reset</button>
-              </div>
-            ))}
-          </div>
+        <div style={{ marginTop: 16, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, fontSize: 12.5, color: "var(--text-muted)" }}>
+          Each render writes a new, uniquely-named folder under{" "}
+          <span style={{ fontFamily: "var(--mono)" }}>projects/{projectName}/renders/</span> — previous videos are kept, never overwritten.
+          {renderResult && (
+            <div style={{ marginTop: 8, fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--text-faint)" }}>
+              latest run: renders/{renderResult.runId}/
+            </div>
+          )}
         </div>
       </div>
 
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, position: "sticky", top: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 14 }}>Export</div>
+
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>Duration</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          {TIERS.map((t) => (
+            <button key={t} onClick={() => setTier(t)} style={tierBtn(t)}>{t}s</button>
+          ))}
+        </div>
+
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16, fontSize: 12.5 }}>
           <Row label="Format" value="MP4 · H.264" />
-          <Row label="Resolution" value="1440×900" />
           <Row label="Frame rate" value="30 fps" />
           <Row label="Length" value={`${tier}s`} />
         </div>
 
-        {exportState === "idle" && (
-          <>
-            <button onClick={startExport} style={{ width: "100%", padding: 13, borderRadius: 9, border: "none", background: "var(--accent)", color: "var(--accent-contrast)", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "var(--shadow-sm)" }}>▸ Export video + poster</button>
-            <div style={{ textAlign: "center", fontSize: 11.5, color: "var(--text-faint)", marginTop: 10 }}>→ demo-{tier}s.mp4 + poster.png</div>
-          </>
+        {dirty && (
+          <div style={{ fontSize: 11.5, color: "var(--warning)", marginBottom: 10 }}>
+            You have unsaved curation edits — they'll be saved automatically before rendering.
+          </div>
         )}
 
-        {exportState === "rendering" && (
-          <>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 6 }}><span>Rendering frame 312/450</span><span style={{ fontFamily: "var(--mono)", color: "var(--text-muted)" }}>~0:20 left</span></div>
-              <div style={{ height: 8, borderRadius: 999, background: "var(--surface-2)", overflow: "hidden" }}><div style={{ width: "69%", height: "100%", background: "var(--accent)" }} /></div>
-            </div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.8, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", color: "var(--text-muted)", marginBottom: 12 }}>
-              <div>encoding cut · 30fps · h264</div><div>frame 312 / 450</div><div style={{ color: "var(--accent)" }}>▍</div>
-            </div>
-            <button onClick={resetExport} style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid var(--danger)", background: "transparent", color: "var(--danger)", fontSize: 13, cursor: "pointer" }}>Cancel render</button>
-          </>
+        {!rendering && (
+          <button onClick={() => runRender({ duration: Number(tier) })} style={{ width: "100%", padding: 13, borderRadius: 9, border: "none", background: "var(--accent)", color: "var(--accent-contrast)", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "var(--shadow-sm)" }}>
+            ▸ Render {tier}s video + poster
+          </button>
         )}
 
-        {exportState === "done" && (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--success)", fontWeight: 600, fontSize: 13.5, marginBottom: 12 }}><span style={{ width: 22, height: 22, borderRadius: 999, background: "rgba(52,211,153,.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>Export complete</div>
-            <div style={{ position: "relative", borderRadius: 9, overflow: "hidden", marginBottom: 12, aspectRatio: "16 / 9", background: "repeating-linear-gradient(135deg,#20232b 0 12px,#191b22 12px 24px)" }}>
-              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "18px 14px 12px", background: "linear-gradient(transparent,rgba(0,0,0,.7))" }}><div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Your product's trailer…</div></div>
-              <span style={{ position: "absolute", top: 8, left: 8, fontFamily: "var(--mono)", fontSize: 10, color: "rgba(255,255,255,.7)", background: "rgba(0,0,0,.4)", padding: "2px 7px", borderRadius: 5 }}>poster.png</span>
+        {rendering && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 6 }}>
+              <span>
+                {renderProgress?.phase === "bundle" && "Bundling…"}
+                {renderProgress?.phase === "render" && `Rendering ${renderProgress.tier}s`}
+                {renderProgress?.phase === "poster" && "Rendering poster…"}
+                {!renderProgress && "Starting…"}
+              </span>
+              {pct !== undefined && <span style={{ fontFamily: "var(--mono)", color: "var(--text-muted)" }}>{pct}%</span>}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 11, background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 9, marginBottom: 12 }}>
-              <div style={{ width: 34, height: 34, borderRadius: 7, background: "var(--accent)", color: "var(--accent-contrast)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>▸</div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontFamily: "var(--mono)", fontSize: 12.5, fontWeight: 600 }}>demo-{tier}s.mp4</div><div style={{ fontSize: 11, color: "var(--text-muted)" }}>1440×900 · 8.4 MB</div></div>
+            <div style={{ height: 8, borderRadius: 999, background: "var(--surface-2)", overflow: "hidden" }}>
+              <div style={{ width: `${pct ?? 15}%`, height: "100%", background: "var(--accent)", transition: "width .2s" }} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-              <button style={{ padding: 10, borderRadius: 8, border: "none", background: "var(--accent)", color: "var(--accent-contrast)", fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>↓ Download</button>
-              <button style={{ padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", fontSize: 12.5, cursor: "pointer" }}>Open folder</button>
+          </div>
+        )}
+
+        {error && (
+          <div style={{ marginTop: 12, fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--danger)", background: "rgba(248,113,113,.08)", border: "1px solid rgba(248,113,113,.3)", borderRadius: 8, padding: "8px 10px", whiteSpace: "pre-wrap" }}>
+            {error}
+          </div>
+        )}
+
+        {exportState === "done" && renderResult && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--success)", fontWeight: 600, fontSize: 13.5, marginBottom: 12 }}>
+              <span style={{ width: 22, height: 22, borderRadius: 999, background: "rgba(52,211,153,.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>
+              Render complete
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <button onClick={resetExport} style={{ padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", fontSize: 12.5, cursor: "pointer" }}>↻ Re-render</button>
-              <button onClick={resetExport} style={{ padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", fontSize: 12.5, cursor: "pointer" }}>Export another length</button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {renderResult.outputs.map((o) => (
+                <a
+                  key={o.relPath}
+                  href={mediaRel(projectName, o.relPath)}
+                  download
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: 10, background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 9, textDecoration: "none", color: "var(--text)" }}
+                >
+                  <span style={{ width: 30, height: 30, borderRadius: 7, background: "var(--accent)", color: "var(--accent-contrast)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>↓</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.relPath.split("/").pop()}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{(o.bytes / 1024 / 1024).toFixed(1)} MB · {o.kind}</div>
+                  </div>
+                </a>
+              ))}
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>

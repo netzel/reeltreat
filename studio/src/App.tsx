@@ -10,8 +10,6 @@ import { CaptureScreen } from "./screens/CaptureScreen";
 import { CurateScreen } from "./screens/CurateScreen";
 import { FrameScreen } from "./screens/FrameScreen";
 import { PreviewScreen } from "./screens/PreviewScreen";
-import { CropModal } from "./modals/CropModal";
-import { ManualModal } from "./modals/ManualModal";
 import type { Screen } from "./types";
 
 const SCREENS: Record<Screen, () => React.JSX.Element> = {
@@ -26,7 +24,7 @@ const SCREENS: Record<Screen, () => React.JSX.Element> = {
 };
 
 export function App() {
-  const { theme, screen, cropOpen, manualOpen } = useStudio();
+  const { theme, screen } = useStudio();
   const Active = SCREENS[screen];
 
   return (
@@ -51,8 +49,6 @@ export function App() {
           <Active />
         </main>
       </div>
-      {cropOpen && <CropModal />}
-      {manualOpen && <ManualModal />}
     </div>
   );
 }
