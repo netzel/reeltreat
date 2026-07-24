@@ -7,3 +7,6 @@ manual/
 dist/
 projects/*.yaml
 !projects/example.yaml
+devresources/
+studio/node_modules/
+studio/dist/

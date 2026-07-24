@@ -1,0 +1,105 @@
+/* Design tokens + resets for reeltreat Studio.
+   Ported verbatim from the UI prototype's global <style> block so the built app
+   matches the mockup exactly. Layout lives as inline styles on components (as in
+   the prototype); this file owns tokens, keyframes, scrollbars, and the reset. */
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:root,
+[data-theme="dark"] {
+  --bg: #080b12;
+  --surface: #111620;
+  --surface-2: #19212e;
+  --border: #242d3b;
+  --shell: #0a0f1a;
+  --shell-border: #1a2331;
+  --text: #eef2f8;
+  --text-muted: #95a0b2;
+  --text-faint: #5e6b7e;
+  --accent: #f89a1c;
+  --accent-press: #e0850f;
+  --accent-contrast: #0b0c0f;
+  --brand-blue: #2caeec;
+  --brand-blue-deep: #183869;
+  --brand-cyan: #0ac4d9;
+  --brand-grad: linear-gradient(120deg, #2caeec, #0ac4d9);
+  --info: #2caeec;
+  --ai: #a78bfa;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.4);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+[data-theme="light"] {
+  --bg: #f4f7fc;
+  --surface: #ffffff;
+  --surface-2: #edf2f9;
+  --border: #dce4ef;
+  --shell: #eef3fb;
+  --shell-border: #dce4ef;
+  --text: #111826;
+  --text-muted: #526079;
+  --text-faint: #93a0b4;
+  --accent-contrast: #1a1200;
+  --shadow: 0 6px 22px rgba(20, 30, 50, 0.12);
+  --shadow-sm: 0 1px 3px rgba(20, 30, 50, 0.08);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+@keyframes kb {
+  0% {
+    transform: scale(1) translateX(0);
+  }
+  100% {
+    transform: scale(1.08) translateX(-3%);
+  }
+}
+@keyframes stripe {
+  to {
+    background-position: 24px 0;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
