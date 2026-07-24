@@ -43,27 +43,36 @@ export function TargetScreen() {
     setError(null);
     setStatus("Creating manifest…");
     try {
-      await api.createProject({
-        name: name.trim(),
-        repoPath: repoPath.trim(),
-        baseUrl: baseUrl.trim() || undefined,
-      });
+      if (isRepo) {
+        await api.createProject({
+          name: name.trim(),
+          repoPath: repoPath.trim(),
+          baseUrl: baseUrl.trim() || undefined,
+        });
+      } else {
+        // Deployed URL only: no repo to introspect — write a starter manifest.
+        await api.createBlankProject({ name: name.trim(), baseUrl: baseUrl.trim() });
+      }
       await loadProjects();
       await openProject(name.trim()); // navigates to the project (capture step)
-      nav("manifest");
+      nav("manifest"); // land on the manifest editor to add screens
     } catch (e) {
       setStatus(null);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  const canCreate = name.trim().length > 0 && repoPath.trim().length > 0;
+  // Repo mode needs a repo path; deployed-URL mode needs a base URL.
+  const canCreate =
+    name.trim().length > 0 && (isRepo ? repoPath.trim().length > 0 : baseUrl.trim().length > 0);
 
   return (
     <div style={{ padding: 28, maxWidth: 760 }}>
       <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-.02em", marginBottom: 4 }}>New project</div>
       <div style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 22 }}>
-        Point at a local app repo. reeltreat detects the framework and routes and writes a manifest.
+        {isRepo
+          ? "Point at a local app repo. reeltreat detects the framework and routes and writes a manifest."
+          : "Create a project for a deployed site from its URL, then add each screen on the manifest editor."}
       </div>
 
       <div style={{ display: "flex", gap: 6, background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10, padding: 5, marginBottom: 22 }}>
@@ -122,8 +131,10 @@ export function TargetScreen() {
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="myapp" style={input} />
           </div>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6 }}>Base URL (optional)</div>
-            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://localhost:3000" style={mono} />
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6 }}>
+              {isRepo ? "Base URL (optional)" : "Base URL (required)"}
+            </div>
+            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://app.example.com" style={mono} />
           </div>
         </div>
 

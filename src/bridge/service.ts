@@ -108,11 +108,6 @@ function statePathFor(project: string): string {
   return resolve(AUTH_DIR, `${project}.json`);
 }
 
-/** True if any browser (path) shot exists — i.e. capture needs a login session. */
-function needsAuth(manifest: Manifest): boolean {
-  return manifest.shots.some((s) => !isImageShot(s));
-}
-
 /** Derive a coarse project status from which artifacts exist on disk. */
 function deriveStatus(project: string): ProjectStatus {
   const renders = rendersDir(project);
@@ -442,6 +437,94 @@ export async function createProject(
   return { ok: true, manifestPath: out };
 }
 
+/** Project folder-name rule: a slug (lowercase letters, numbers, hyphens). */
+const PROJECT_SLUG_RE = /^[a-z0-9-]+$/;
+
+/** Ensure a URL has a scheme; deployed sites are TLS, so default to https://. */
+function normalizeBaseUrl(raw: string): string {
+  const t = raw.trim();
+  if (!t) return t;
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`;
+}
+
+export interface CreateBlankProjectInput {
+  name: string;
+  baseUrl?: string;
+  force?: boolean;
+}
+
+/**
+ * Create a project for a deployed URL with no local repo: write a minimal, valid
+ * starter manifest the user then fills in on the Manifest screen. Unlike
+ * createProject there's no repo to introspect and no AI call — reeltreat can't
+ * crawl a site it has no source for, so the starter lists one shot (the home
+ * page) plus commented examples for adding the rest. The base URL is normalized
+ * to include a scheme (a bare host like "app.example.com" becomes
+ * "https://app.example.com"), which is the most common manifest mistake.
+ */
+export function createBlankProject(
+  input: CreateBlankProjectInput,
+): { ok: true; manifestPath: string } {
+  const name = input.name.trim();
+  if (!PROJECT_SLUG_RE.test(name)) {
+    throw new Error(
+      `project name "${name}" must be a slug (lowercase letters, numbers, hyphens)`,
+    );
+  }
+  const baseUrl = normalizeBaseUrl(input.baseUrl ?? "");
+  if (!baseUrl) {
+    throw new Error("a Base URL is required to create a deployed-URL project");
+  }
+  const out = manifestPath(name);
+  if (existsSync(out) && !input.force) {
+    throw new Error(`${out} already exists. Pass force to overwrite it.`);
+  }
+
+  const yaml = [
+    `# reeltreat project: ${name}`,
+    `#`,
+    `# Deployed-URL project — reeltreat can't crawl a site it has no source for,`,
+    `# so list each screen you want in the reel under \`shots\` below. Every shot`,
+    `# needs a unique \`id\` (slug), a \`path\` (route under baseUrl), and a \`caption\`.`,
+    ``,
+    `name: ${name}`,
+    `baseUrl: ${baseUrl}`,
+    `viewport:`,
+    `  width: 1440`,
+    `  height: 900`,
+    ``,
+    `# Settle each shot 2s so client-rendered pages finish before the screenshot.`,
+    `defaults:`,
+    `  delayMs: 2000`,
+    ``,
+    `shots:`,
+    `  - id: home`,
+    `    path: /`,
+    `    caption: ${name} — home`,
+    `  # Add more screens, for example:`,
+    `  # - id: pricing`,
+    `  #   path: /pricing`,
+    `  #   caption: Simple, transparent pricing`,
+    `  # - id: dashboard`,
+    `  #   path: /dashboard`,
+    `  #   caption: Your workspace at a glance`,
+    ``,
+  ].join("\n");
+
+  // Validate before writing so we never persist an unloadable manifest.
+  const parsed = ManifestSchema.safeParse(parseYaml(yaml));
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("\n");
+    throw new Error(`could not create a valid manifest:\n${issues}`);
+  }
+
+  mkdirSync(projectDir(name), { recursive: true });
+  writeFileSync(out, yaml);
+  return { ok: true, manifestPath: out };
+}
+
 export interface CaptureSummary {
   captured: number;
   warnings: number;
@@ -462,12 +545,9 @@ export async function runCapture(
 ): Promise<CaptureSummary> {
   assertReady(project);
   const manifest = loadManifest(project);
+  // A saved session is used when present, but not required: a public site
+  // captures without one. Authenticate first only when a shot needs a login.
   const statePath = statePathFor(project);
-  if (needsAuth(manifest) && !existsSync(statePath)) {
-    throw new Error(
-      `No saved session at ${statePath}. Authenticate this project first.`,
-    );
-  }
 
   const outDir = capturesDir(project);
   mkdirSync(outDir, { recursive: true });
