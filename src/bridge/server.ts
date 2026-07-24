@@ -101,6 +101,13 @@ export const ROUTES: Route[] = [
   },
   {
     method: "POST",
+    pattern: /^\/api\/discover$/,
+    handler: async ({ res, body }) => {
+      sendJson(res, 200, await svc.discoverScreens({ baseUrl: String(body.baseUrl ?? "") }));
+    },
+  },
+  {
+    method: "POST",
     pattern: /^\/api\/projects\/blank$/,
     handler: ({ res, body }) =>
       sendJson(
@@ -109,6 +116,7 @@ export const ROUTES: Route[] = [
         svc.createBlankProject({
           name: String(body.name ?? ""),
           baseUrl: body.baseUrl ? String(body.baseUrl) : undefined,
+          shots: Array.isArray(body.shots) ? (body.shots as svc.StarterShot[]) : undefined,
           force: Boolean(body.force),
         }),
       ),

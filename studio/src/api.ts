@@ -6,7 +6,7 @@
 // steps (capture, render) stream NDJSON progress lines; the rest are plain JSON.
 
 import type { Curation } from "./curation";
-import type { Edit, Rect } from "./types";
+import type { DiscoveredScreen, Edit, Rect } from "./types";
 
 export type ProjectStatus = "Draft" | "Captured" | "Curated" | "Rendered";
 
@@ -160,8 +160,15 @@ export const api = {
   createProject: (input: { name: string; repoPath: string; baseUrl?: string; force?: boolean }) =>
     sendJson<{ ok: true; manifestPath: string }>("/api/projects", "POST", input),
 
-  createBlankProject: (input: { name: string; baseUrl?: string; force?: boolean }) =>
-    sendJson<{ ok: true; manifestPath: string }>("/api/projects/blank", "POST", input),
+  createBlankProject: (input: {
+    name: string;
+    baseUrl?: string;
+    shots?: DiscoveredScreen[];
+    force?: boolean;
+  }) => sendJson<{ ok: true; manifestPath: string }>("/api/projects/blank", "POST", input),
+
+  discoverScreens: (baseUrl: string) =>
+    sendJson<{ baseUrl: string; routes: DiscoveredScreen[] }>("/api/discover", "POST", { baseUrl }),
 
   getProject: (name: string) => getJson<ProjectDetail>(`/api/projects/${encodeURIComponent(name)}`),
 
