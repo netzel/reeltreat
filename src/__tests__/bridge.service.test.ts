@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
 import {
+  addManualShot,
   createProject,
   getCuration,
   getManifestText,
@@ -115,6 +116,46 @@ describe("manifest read/write", () => {
     expect(() => saveManifestText("myapp", "name: myapp\nshots: []\n")).toThrow(/Invalid manifest/);
     // The good manifest is untouched.
     expect(getManifestText("myapp")).toContain("- id: home");
+  });
+});
+
+describe("addManualShot", () => {
+  const b64 = Buffer.from("fake-image-bytes").toString("base64");
+
+  it("saves the image and appends a manual shot to the manifest", () => {
+    const result = addManualShot("myapp", {
+      id: "mic",
+      caption: "Live mic",
+      filename: "shot.png",
+      dataBase64: b64,
+    });
+    expect(result).toMatchObject({ ok: true, id: "mic", image: "manual/shot.png" });
+    // Image written into manual/.
+    expect(existsSync(join(root, "projects", "myapp", "manual", "shot.png"))).toBe(true);
+    // Shot appended and readable via the detail payload.
+    const detail = getProjectDetail("myapp");
+    expect(detail.shots.map((s) => s.id)).toEqual(["home", "about", "mic"]);
+    const mic = detail.shots.find((s) => s.id === "mic");
+    expect(mic).toMatchObject({ kind: "manual", caption: "Live mic" });
+  });
+
+  it("preserves existing manifest comments when appending", () => {
+    const commented = "# my project\nname: myapp\nbaseUrl: https://myapp.example.com\nshots:\n  - id: home\n    path: /home\n    caption: Home\n";
+    writeFileSync(join(root, "projects", "myapp", "manifest.yaml"), commented);
+    addManualShot("myapp", { id: "mic", caption: "Live mic", filename: "shot.png", dataBase64: b64 });
+    const text = readFileSync(join(root, "projects", "myapp", "manifest.yaml"), "utf8");
+    expect(text).toContain("# my project"); // comment survived the edit
+    expect(text).toContain("id: mic");
+  });
+
+  it("rejects a non-slug id, a duplicate id, and an unsupported file type", () => {
+    expect(() => addManualShot("myapp", { id: "Not Slug", caption: "c", filename: "a.png", dataBase64: b64 })).toThrow(/slug/);
+    expect(() => addManualShot("myapp", { id: "home", caption: "c", filename: "a.png", dataBase64: b64 })).toThrow(/already exists/);
+    expect(() => addManualShot("myapp", { id: "vid", caption: "c", filename: "a.mov", dataBase64: b64 })).toThrow(/unsupported image type/);
+  });
+
+  it("rejects an empty upload", () => {
+    expect(() => addManualShot("myapp", { id: "mic", caption: "c", filename: "a.png", dataBase64: "" })).toThrow(/empty/);
   });
 });
 

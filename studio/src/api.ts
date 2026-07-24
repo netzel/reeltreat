@@ -167,6 +167,16 @@ export const api = {
   saveManifest: (name: string, text: string) =>
     sendJson<{ ok: true }>(`/api/projects/${encodeURIComponent(name)}/manifest`, "PUT", { text }),
 
+  addManualShot: (
+    name: string,
+    input: { id: string; caption: string; filename: string; dataBase64: string },
+  ) =>
+    sendJson<{ ok: true; id: string; image: string }>(
+      `/api/projects/${encodeURIComponent(name)}/manual`,
+      "POST",
+      input,
+    ),
+
   getCuration: (name: string) =>
     getJson<{ curation: Curation | null }>(`/api/projects/${encodeURIComponent(name)}/curation`).then(
       (r) => r.curation,

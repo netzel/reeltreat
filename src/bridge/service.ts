@@ -5,8 +5,8 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { basename, extname, join, resolve } from "node:path";
+import { parse as parseYaml, parseDocument, YAMLSeq } from "yaml";
 import Anthropic from "@anthropic-ai/sdk";
 import {
   loadManifest,
@@ -196,6 +196,87 @@ export function saveManifestText(project: string, text: string): { ok: true } {
   mkdirSync(projectDir(project), { recursive: true });
   writeFileSync(manifestPath(project), text);
   return { ok: true };
+}
+
+/** Allowed manual-image extensions — sharp normalizes these at capture time. */
+const MANUAL_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
+const SLUG_RE = /^[a-z0-9-]+$/;
+
+export interface AddManualShotInput {
+  /** Shot id — a unique slug (lowercase letters, numbers, hyphens). */
+  id: string;
+  caption: string;
+  /** Original upload filename, used to name the stored file. */
+  filename: string;
+  /** Base64-encoded image bytes. */
+  dataBase64: string;
+}
+
+export interface AddManualShotResult {
+  ok: true;
+  id: string;
+  /** Manifest-relative image path written (manual/<file>). */
+  image: string;
+}
+
+/**
+ * Add a manual (image) shot: save the uploaded image into the project's manual/
+ * folder and append a shot to the manifest pointing at it. The manifest is
+ * edited through the YAML document API so existing comments and formatting are
+ * preserved, and the result is re-validated before it's written, so an upload
+ * can never produce an unloadable manifest. The image is stored as-is; capture
+ * normalizes it to the viewport (and converts to PNG) like any manual shot.
+ */
+export function addManualShot(project: string, input: AddManualShotInput): AddManualShotResult {
+  const file = manifestPath(project);
+  if (!existsSync(file)) throw new Error(`No manifest for project "${project}"`);
+
+  const id = input.id.trim();
+  if (!SLUG_RE.test(id)) {
+    throw new Error(`shot id "${id}" must be a slug (lowercase letters, numbers, hyphens)`);
+  }
+  const manifest = loadManifest(project);
+  if (manifest.shots.some((s) => s.id === id)) {
+    throw new Error(`shot id "${id}" already exists in the manifest`);
+  }
+
+  // Sanitize to a safe basename with an allowed image extension.
+  const storedName = basename(input.filename).replace(/[^A-Za-z0-9._-]/g, "_");
+  const ext = extname(storedName).toLowerCase();
+  if (!MANUAL_IMAGE_EXTS.has(ext)) {
+    throw new Error(`unsupported image type "${ext || "(none)"}" — use PNG, JPG, WEBP, or GIF`);
+  }
+
+  const bytes = Buffer.from(input.dataBase64, "base64");
+  if (bytes.length === 0) throw new Error("empty image upload");
+
+  const dir = manualDir(project);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, storedName), bytes);
+
+  const image = `manual/${storedName}`;
+
+  // Append the shot, preserving the manifest's comments/formatting.
+  const doc = parseDocument(readFileSync(file, "utf8"));
+  let shots = doc.get("shots");
+  if (!(shots instanceof YAMLSeq)) {
+    shots = new YAMLSeq();
+    doc.set("shots", shots);
+  }
+  (shots as YAMLSeq).add({ id, image, caption: input.caption });
+  const nextText = String(doc);
+
+  // Re-validate before persisting, so a bad edit never lands on disk.
+  const parsed = ManifestSchema.safeParse(parseYaml(nextText));
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("\n");
+    throw new Error(`adding the shot produced an invalid manifest:\n${issues}`);
+  }
+  writeFileSync(file, nextText);
+
+  return { ok: true, id, image };
 }
 
 /** Read the stored curation record for a project, or null if not curated. */
