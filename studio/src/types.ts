@@ -22,3 +22,17 @@ export type ExportState = "idle" | "rendering" | "done";
 export type ShotStatus = "captured" | "warning" | "failed" | "manual";
 export type ShotKind = "browser" | "manual";
 export type ProjectStatus = "Draft" | "Captured" | "Curated" | "Rendered";
+
+/** A non-destructive crop rectangle, normalized (0..1) to the source screenshot. */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Per-project creative overrides (mirrors src/edit-schema.ts). */
+export interface Edit {
+  version: 1;
+  crops: Record<string, Rect>;
+}

@@ -15,6 +15,7 @@ import {
   type Reel,
 } from "./reel.js";
 import { curationPath, projectDir, renderRunDir, renderRunId } from "./paths.js";
+import { cropToPixels, loadEdit, type Rect } from "./edit-schema.js";
 import { CROSSFADE_FRAMES, type PosterProps, type ReelProps } from "../remotion/types.js";
 import { withEsbuildTsconfig } from "../remotion/webpack-override.js";
 
@@ -47,6 +48,49 @@ function toDataUri(path: string): string {
   return `data:${mime};base64,${readFileSync(path).toString("base64")}`;
 }
 
+/** Viewport size the cropped output is resized back to. */
+interface Size {
+  width: number;
+  height: number;
+}
+
+/**
+ * Embed a screenshot as a data URI, applying a non-destructive crop when one is
+ * set. A crop sub-rects the source (via sharp.extract) and resizes it back to the
+ * full viewport with `fit: "fill"`, so the chosen rectangle becomes the whole
+ * frame — matching the Studio crop preview exactly. Uncropped shots take the
+ * plain read path. Results are memoized in `cache` because the same shot (and
+ * crop) recurs across duration tiers and the poster.
+ */
+async function embedImage(
+  path: string,
+  crop: Rect | undefined,
+  viewport: Size,
+  cache: Map<string, string>,
+): Promise<string> {
+  const key = crop ? `${path}|${crop.x},${crop.y},${crop.w},${crop.h}` : path;
+  const hit = cache.get(key);
+  if (hit) return hit;
+
+  let uri: string;
+  if (!crop) {
+    uri = toDataUri(path);
+  } else {
+    const meta = await sharp(path).metadata();
+    const w = meta.width ?? viewport.width;
+    const h = meta.height ?? viewport.height;
+    const region = cropToPixels(crop, w, h);
+    const buf = await sharp(path)
+      .extract(region)
+      .resize(viewport.width, viewport.height, { fit: "fill" })
+      .png()
+      .toBuffer();
+    uri = `data:image/png;base64,${buf.toString("base64")}`;
+  }
+  cache.set(key, uri);
+  return uri;
+}
+
 /** Human-readable file size for the summary line. */
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -66,8 +110,17 @@ function loadCuration(project: string, manifest: Manifest): CurationResult {
   return validateCuration(record.curation, manifest.shots.map((s) => s.id));
 }
 
-/** Convert the pure reel model into the composition's inputProps (data URIs). */
-function reelToProps(reel: Reel, logoSrc: string | undefined): ReelProps {
+/**
+ * Convert the pure reel model into the composition's inputProps. Each scene's
+ * screenshot is embedded as a data URI, cropped first when the scene carries a
+ * crop rect (`cache` dedupes work across tiers).
+ */
+async function reelToProps(
+  reel: Reel,
+  logoSrc: string | undefined,
+  viewport: Size,
+  cache: Map<string, string>,
+): Promise<ReelProps> {
   const brand = reel.titleCard.brand;
   return {
     fps: reel.fps,
@@ -81,14 +134,16 @@ function reelToProps(reel: Reel, logoSrc: string | undefined): ReelProps {
       logoSrc,
       crossfade: CROSSFADE_FRAMES,
     },
-    scenes: reel.scenes.map((s) => ({
-      src: toDataUri(s.imagePath),
-      callout: s.callout,
-      durationInFrames: s.durationInFrames,
-      fadeInFrames: CROSSFADE_FRAMES,
-      kenBurns: s.kenBurns,
-      brand,
-    })),
+    scenes: await Promise.all(
+      reel.scenes.map(async (s) => ({
+        src: await embedImage(s.imagePath, s.crop, viewport, cache),
+        callout: s.callout,
+        durationInFrames: s.durationInFrames,
+        fadeInFrames: CROSSFADE_FRAMES,
+        kenBurns: s.kenBurns,
+        brand,
+      })),
+    ),
   };
 }
 
@@ -149,6 +204,10 @@ export async function renderProject(opts: RenderOptions): Promise<RenderResult> 
 
   const manifest = loadManifest(project);
   const curation = loadCuration(project, manifest);
+  // Non-destructive per-shot crops, layered over the AI curation at render time.
+  const crops = loadEdit(project).crops;
+  // Cropped/embedded data URIs are reused across tiers and the poster.
+  const embedCache = new Map<string, string>();
 
   // Escape hatch for offline / locked-down environments: point Remotion at an
   // already-installed Chrome/Chromium instead of letting it download its headless
@@ -205,8 +264,13 @@ export async function renderProject(opts: RenderOptions): Promise<RenderResult> 
   const outputs: RenderOutput[] = [];
 
   for (const tier of tiers) {
-    const reel = buildReel({ manifest, curation, durationSeconds: tier, fps, projectDir: projDir });
-    const inputProps = reelToProps(reel, logoSrc) as unknown as Record<string, unknown>;
+    const reel = buildReel({ manifest, curation, durationSeconds: tier, fps, projectDir: projDir, crops });
+    const inputProps = (await reelToProps(
+      reel,
+      logoSrc,
+      manifest.viewport,
+      embedCache,
+    )) as unknown as Record<string, unknown>;
 
     const composition = await selectComposition({ serveUrl, id: "Reel", inputProps, ...browserOpt });
     const outputLocation = join(outDir, `demo-${tier}s.mp4`);
@@ -242,7 +306,7 @@ export async function renderProject(opts: RenderOptions): Promise<RenderResult> 
       accentColor: manifest.brand.accentColor,
       font: manifest.brand.font,
     },
-    src: toDataUri(heroPath),
+    src: await embedImage(heroPath, crops[curation.heroShotId], manifest.viewport, embedCache),
     logoSrc,
   };
   const posterInput = posterProps as unknown as Record<string, unknown>;

@@ -31,6 +31,7 @@ import type {
   CaptureState,
   ConnectMode,
   ExportState,
+  Rect,
   Screen,
   Theme,
   Tier,
@@ -47,6 +48,10 @@ interface StudioState {
   authStep: AuthStep;
   captureState: CaptureState;
   exportState: ExportState;
+  /** Non-destructive per-shot crops (from edit.json), keyed by shot id. */
+  crops: Record<string, Rect>;
+  /** The shot whose crop editor is open, or null when the modal is closed. */
+  cropShotId: string | null;
   // --- data ---
   projects: ProjectInfo[];
   projectName: string | null;
@@ -86,6 +91,11 @@ interface StudioActions {
   runRender: (opts: { duration?: number; all?: boolean; fps?: number }) => Promise<void>;
   startLogin: () => Promise<void>;
   confirmLogin: () => Promise<void>;
+  // crop editing (non-destructive; persisted to edit.json)
+  openCrop: (shotId: string) => void;
+  closeCrop: () => void;
+  applyCrop: (shotId: string, rect: Rect) => Promise<void>;
+  resetCrop: (shotId: string) => Promise<void>;
   // curation edits (operate on the current working copy + selected tier)
   editTagline: (t: string) => void;
   editCallout: (id: string, callout: string) => void;
@@ -109,6 +119,8 @@ const INITIAL: StudioState = {
   authStep: "idle",
   captureState: "empty",
   exportState: "idle",
+  crops: {},
+  cropShotId: null,
   projects: [],
   projectName: null,
   detail: null,
@@ -172,11 +184,20 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       openProject: (name) =>
         withBusy("Opening project", async () => {
           const detail = await api.getProject(name);
+          // Load saved crops alongside the project; tolerate a missing edit.json.
+          let crops: Record<string, Rect> = {};
+          try {
+            crops = (await api.getEdit(name)).crops;
+          } catch {
+            /* no edit.json yet */
+          }
           patch({
             projectName: name,
             detail,
             curation: detail.curation,
             dirty: false,
+            crops,
+            cropShotId: null,
             captureState: detail.shots.some((s) => s.captured) ? "done" : "empty",
             renderResult: null,
             renderProgress: null,
@@ -268,6 +289,29 @@ export function StudioProvider({ children }: { children: ReactNode }) {
           await api.confirmLogin(name);
           patch({ authStep: "success" });
           await actions.refreshDetail();
+        }),
+
+      openCrop: (shotId) => patch({ cropShotId: shotId }),
+      closeCrop: () => patch({ cropShotId: null }),
+
+      applyCrop: (shotId, rect) =>
+        withBusy("Saving crop", async () => {
+          const name = project();
+          if (!name) return;
+          await api.setCrop(name, shotId, rect);
+          setState((s) => ({ ...s, crops: { ...s.crops, [shotId]: rect }, cropShotId: null }));
+        }),
+
+      resetCrop: (shotId) =>
+        withBusy("Resetting crop", async () => {
+          const name = project();
+          if (!name) return;
+          await api.clearCrop(name, shotId);
+          setState((s) => {
+            const next = { ...s.crops };
+            delete next[shotId];
+            return { ...s, crops: next, cropShotId: null };
+          });
         }),
 
       editTagline: (t) => editCuration((c) => setTagline(c, t)),

@@ -142,6 +142,24 @@ export const ROUTES: Route[] = [
       sendJson(res, 200, svc.saveCuration(params.project, body.curation)),
   },
   {
+    method: "GET",
+    pattern: /^\/api\/projects\/(?<project>[^/]+)\/edit$/,
+    handler: ({ res, params }) => sendJson(res, 200, { edit: svc.getEdit(params.project) }),
+  },
+  {
+    method: "PUT",
+    pattern: /^\/api\/projects\/(?<project>[^/]+)\/edit\/crop$/,
+    handler: ({ res, params, body }) => {
+      const shotId = String(body.shotId ?? "");
+      // A null/absent rect clears the crop; otherwise set it.
+      if (body.rect === null || body.rect === undefined) {
+        sendJson(res, 200, svc.clearCrop(params.project, shotId));
+      } else {
+        sendJson(res, 200, svc.setCrop(params.project, shotId, body.rect));
+      }
+    },
+  },
+  {
     method: "POST",
     pattern: /^\/api\/projects\/(?<project>[^/]+)\/capture$/,
     handler: async ({ res, params }) => {

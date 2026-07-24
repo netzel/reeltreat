@@ -12,8 +12,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
 import {
   addManualShot,
+  clearCrop,
   createProject,
   getCuration,
+  getEdit,
   getManifestText,
   getProjectDetail,
   listProjects,
@@ -22,6 +24,7 @@ import {
   runRender,
   saveCuration,
   saveManifestText,
+  setCrop,
   startLogin,
 } from "../bridge/service.js";
 import type { CurationResult } from "../curation-schema.js";
@@ -296,5 +299,32 @@ describe("startLogin", () => {
     confirm();
     await expect(done).resolves.toMatchObject({ savedTo: expect.stringContaining("myapp.json") });
     expect(login).toHaveBeenCalledOnce();
+  });
+});
+
+describe("crops (edit.json)", () => {
+  const rect = { x: 0.1, y: 0.2, w: 0.6, h: 0.5 };
+
+  it("starts with an empty edit", () => {
+    expect(getEdit("myapp")).toEqual({ version: 1, crops: {} });
+  });
+
+  it("sets, round-trips, and clears a crop for a manifest shot", () => {
+    expect(setCrop("myapp", "home", rect)).toEqual({ ok: true });
+    expect(getEdit("myapp").crops.home).toEqual(rect);
+    // Editing crops never writes a curation or touches captures.
+    expect(existsSync(join(root, "projects", "myapp", "edit.json"))).toBe(true);
+
+    expect(clearCrop("myapp", "home")).toEqual({ ok: true });
+    expect(getEdit("myapp").crops.home).toBeUndefined();
+  });
+
+  it("rejects a crop for an unknown shot id", () => {
+    expect(() => setCrop("myapp", "nope", rect)).toThrow(/not in manifest/);
+  });
+
+  it("rejects an invalid rect without writing", () => {
+    expect(() => setCrop("myapp", "home", { x: 0, y: 0, w: 1.5, h: 0.5 })).toThrow(/invalid crop/);
+    expect(getEdit("myapp").crops.home).toBeUndefined();
   });
 });
