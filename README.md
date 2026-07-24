@@ -251,6 +251,12 @@ What the UI gives you over the CLI:
   are saved automatically before a render.
 - **Live progress.** Capture and render stream real per-shot / per-frame progress
   into the UI, and the finished video plays inline with download links.
+- **Start a deployed project by URL — and discover its screens.** New Project →
+  "Deployed URL only" takes just a name and the site's URL (a missing scheme is
+  filled in as `https://`). Hit **Discover screens** and reeltreat opens the site,
+  reads its links, and pre-fills a checklist of same-origin screens (auth/API and
+  asset links filtered out) with editable captions; the ones you keep become the
+  manifest's shots. No repo required.
 - **Add manual shots from the browser.** On the Manifest screen, upload an image
   for a state automation can't reach; it's saved into the project's `manual/`
   folder and appended to the manifest as an `image` shot (the manifest's comments

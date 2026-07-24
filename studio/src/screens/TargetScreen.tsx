@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useStudio } from "../store";
 import { api, type DetectResult } from "../api";
 import { seg } from "../ui";
+import type { DiscoveredScreen } from "../types";
 
 export function TargetScreen() {
   const { connectMode, setConnectMode, nav, loadProjects, openProject } = useStudio();
@@ -13,6 +14,10 @@ export function TargetScreen() {
   const [detected, setDetected] = useState<DetectResult | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Deployed-URL screen discovery.
+  const [discovering, setDiscovering] = useState(false);
+  const [routes, setRoutes] = useState<DiscoveredScreen[] | null>(null);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
 
   const input: React.CSSProperties = {
     width: "100%",
@@ -39,6 +44,29 @@ export function TargetScreen() {
     }
   };
 
+  const discover = async () => {
+    setError(null);
+    setDiscovering(true);
+    setRoutes(null);
+    setStatus("Discovering screens…");
+    try {
+      const res = await api.discoverScreens(baseUrl.trim());
+      setBaseUrl(res.baseUrl); // normalized (scheme added if missing)
+      setRoutes(res.routes);
+      setSelected(Object.fromEntries(res.routes.map((r) => [r.path, true])));
+      setStatus(`Found ${res.routes.length} screen${res.routes.length === 1 ? "" : "s"}`);
+    } catch (e) {
+      setStatus(null);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const toggle = (path: string) => setSelected((s) => ({ ...s, [path]: !s[path] }));
+  const setCaption = (path: string, caption: string) =>
+    setRoutes((rs) => (rs ? rs.map((r) => (r.path === path ? { ...r, caption } : r)) : rs));
+
   const create = async () => {
     setError(null);
     setStatus("Creating manifest…");
@@ -50,8 +78,14 @@ export function TargetScreen() {
           baseUrl: baseUrl.trim() || undefined,
         });
       } else {
-        // Deployed URL only: no repo to introspect — write a starter manifest.
-        await api.createBlankProject({ name: name.trim(), baseUrl: baseUrl.trim() });
+        // Deployed URL only: no repo to introspect — write a starter manifest,
+        // seeded with any discovered screens the user kept selected.
+        const chosen = (routes ?? []).filter((r) => selected[r.path]);
+        await api.createBlankProject({
+          name: name.trim(),
+          baseUrl: baseUrl.trim(),
+          shots: chosen.length ? chosen : undefined,
+        });
       }
       await loadProjects();
       await openProject(name.trim()); // navigates to the project (capture step)
@@ -119,9 +153,8 @@ export function TargetScreen() {
           </>
         ) : (
           <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 18 }}>
-            For a deployed URL with no local repo, create the project here, then edit the manifest by hand
-            on the next screen (add each shot's <span style={{ fontFamily: "var(--mono)" }}>path</span> and
-            <span style={{ fontFamily: "var(--mono)" }}> caption</span>).
+            For a deployed site with no local repo, enter its URL below and let reeltreat discover the
+            screens — or add them by hand on the next screen.
           </div>
         )}
 
@@ -137,6 +170,60 @@ export function TargetScreen() {
             <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://app.example.com" style={mono} />
           </div>
         </div>
+
+        {!isRepo && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: routes ? 12 : 0 }}>
+              <button
+                onClick={discover}
+                disabled={!baseUrl.trim() || discovering}
+                style={{
+                  padding: "8px 13px",
+                  borderRadius: 8,
+                  border: "1px solid var(--accent)",
+                  background: "var(--surface-2)",
+                  color: "var(--text)",
+                  fontWeight: 600,
+                  fontSize: 12.5,
+                  cursor: baseUrl.trim() && !discovering ? "pointer" : "not-allowed",
+                  opacity: baseUrl.trim() && !discovering ? 1 : 0.5,
+                }}
+              >
+                {discovering ? "Discovering…" : "🔍 Discover screens"}
+              </button>
+              <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
+                Crawls the site's links to pre-fill screens. Optional.
+              </span>
+            </div>
+
+            {routes && routes.length > 0 && (
+              <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+                <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)", fontSize: 12, fontWeight: 600 }}>
+                  {routes.filter((r) => selected[r.path]).length}/{routes.length} screens selected
+                </div>
+                <div style={{ maxHeight: 240, overflowY: "auto" }}>
+                  {routes.map((r) => (
+                    <div key={r.path} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 12px", borderTop: "1px solid var(--border)" }}>
+                      <input type="checkbox" checked={!!selected[r.path]} onChange={() => toggle(r.path)} style={{ cursor: "pointer" }} />
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--text-muted)", minWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.path}</span>
+                      <input
+                        value={r.caption}
+                        onChange={(e) => setCaption(r.path, e.target.value)}
+                        placeholder="caption"
+                        style={{ flex: 1, background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 8px", color: "var(--text)", fontSize: 12 }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {routes && routes.length === 0 && (
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+                No linked screens found — add them by hand on the next screen.
+              </div>
+            )}
+          </div>
+        )}
 
         {status && <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>{status}</div>}
         {error && (

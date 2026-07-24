@@ -15,6 +15,7 @@ import {
   clearCrop,
   createBlankProject,
   createProject,
+  discoverScreens,
   getCuration,
   getEdit,
   getManifestText,
@@ -351,6 +352,21 @@ describe("createBlankProject (deployed URL only)", () => {
     expect(text).toContain("baseUrl: http://localhost:3000");
   });
 
+  it("writes discovered shots (with captions safely escaped) into the manifest", () => {
+    createBlankProject({
+      name: "multi",
+      baseUrl: "https://x.com",
+      shots: [
+        { id: "home", path: "/", caption: "Home" },
+        { id: "pricing", path: "/pricing", caption: "Plans: simple & fair" },
+      ],
+    });
+    const detail = getProjectDetail("multi");
+    expect(detail.shots.map((s) => s.id)).toEqual(["home", "pricing"]);
+    // The tricky caption round-trips through YAML unchanged (safely escaped).
+    expect(detail.shots.find((s) => s.id === "pricing")?.caption).toBe("Plans: simple & fair");
+  });
+
   it("rejects a non-slug project name and a missing base URL", () => {
     expect(() => createBlankProject({ name: "Not Slug", baseUrl: "https://x.com" })).toThrow(/slug/);
     expect(() => createBlankProject({ name: "nourl", baseUrl: "" })).toThrow(/Base URL is required/);
@@ -359,5 +375,22 @@ describe("createBlankProject (deployed URL only)", () => {
   it("refuses to overwrite an existing project without force", () => {
     createBlankProject({ name: "dupe", baseUrl: "https://x.com" });
     expect(() => createBlankProject({ name: "dupe", baseUrl: "https://x.com" })).toThrow(/already exists/);
+  });
+});
+
+describe("discoverScreens", () => {
+  it("normalizes a scheme-less base URL and returns crawled routes", async () => {
+    const crawl = vi.fn().mockResolvedValue([
+      { path: "/", id: "home", caption: "Home" },
+      { path: "/pricing", id: "pricing", caption: "Pricing" },
+    ]);
+    const res = await discoverScreens({ baseUrl: "bytyme.vercel.app" }, { crawl });
+    expect(res.baseUrl).toBe("https://bytyme.vercel.app");
+    expect(crawl).toHaveBeenCalledWith("https://bytyme.vercel.app", { max: undefined });
+    expect(res.routes.map((r) => r.path)).toEqual(["/", "/pricing"]);
+  });
+
+  it("requires a base URL", async () => {
+    await expect(discoverScreens({ baseUrl: "" }, { crawl: vi.fn() })).rejects.toThrow(/Base URL/);
   });
 });

@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
-import { parse as parseYaml, parseDocument, YAMLSeq } from "yaml";
+import { parse as parseYaml, parseDocument, stringify as stringifyYaml, YAMLSeq } from "yaml";
 import Anthropic from "@anthropic-ai/sdk";
 import {
   loadManifest,
@@ -35,6 +35,7 @@ import { initProject } from "../init.js";
 import { runLogin, type LoginMode, type RunLoginOptions } from "../login.js";
 import { validateCuration, type CurationResult } from "../curation-schema.js";
 import { RectSchema, loadEdit, saveEdit, type Edit } from "../edit-schema.js";
+import { crawlScreens, type DiscoveredScreen } from "../discover.js";
 import type { CaptionClient } from "../captions.js";
 import { loadEnv } from "../env.js";
 import {
@@ -337,6 +338,24 @@ export function saveCuration(
   return { ok: true };
 }
 
+/**
+ * Discover the screens of a deployed site by crawling its links (no repo needed).
+ * Normalizes a scheme-less base URL first, mirroring createBlankProject. Returns
+ * shot candidates the UI can review before writing them into a project.
+ */
+export async function discoverScreens(
+  input: { baseUrl: string; max?: number },
+  deps: { crawl?: typeof crawlScreens } = {},
+): Promise<{ baseUrl: string; routes: DiscoveredScreen[] }> {
+  const baseUrl = normalizeBaseUrl(input.baseUrl ?? "");
+  if (!baseUrl) {
+    throw new Error("a Base URL is required to discover screens");
+  }
+  const crawl = deps.crawl ?? crawlScreens;
+  const routes = await crawl(baseUrl, { max: input.max });
+  return { baseUrl, routes };
+}
+
 // ---- Creative overrides: edit.json (crops today) ----
 
 /** Read a project's edit.json (crops), or an empty edit if none exists. */
@@ -447,9 +466,18 @@ function normalizeBaseUrl(raw: string): string {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`;
 }
 
+/** A shot to seed a blank project with (e.g. from screen discovery). */
+export interface StarterShot {
+  id: string;
+  path: string;
+  caption: string;
+}
+
 export interface CreateBlankProjectInput {
   name: string;
   baseUrl?: string;
+  /** Screens to write as shots; defaults to a single home shot when omitted. */
+  shots?: StarterShot[];
   force?: boolean;
 }
 
@@ -480,12 +508,22 @@ export function createBlankProject(
     throw new Error(`${out} already exists. Pass force to overwrite it.`);
   }
 
+  // Provided screens (from discovery) or a single home shot to start.
+  const shots: StarterShot[] =
+    input.shots && input.shots.length > 0
+      ? input.shots.map((s) => ({ id: s.id, path: s.path, caption: s.caption }))
+      : [{ id: "home", path: "/", caption: `${name} — home` }];
+
+  // The top fields are controlled, so hand-write them (keeps baseUrl unquoted);
+  // the shots are serialized with the YAML library so captions/paths are escaped
+  // safely no matter what discovery found.
+  const shotsYaml = stringifyYaml({ shots }).trimEnd();
   const yaml = [
     `# reeltreat project: ${name}`,
     `#`,
-    `# Deployed-URL project — reeltreat can't crawl a site it has no source for,`,
-    `# so list each screen you want in the reel under \`shots\` below. Every shot`,
-    `# needs a unique \`id\` (slug), a \`path\` (route under baseUrl), and a \`caption\`.`,
+    `# Deployed-URL project — screens are listed under \`shots\`. Add, remove, or`,
+    `# re-caption them here; each shot needs a unique \`id\` (slug), a \`path\`, and a`,
+    `# \`caption\`.`,
     ``,
     `name: ${name}`,
     `baseUrl: ${baseUrl}`,
@@ -497,17 +535,7 @@ export function createBlankProject(
     `defaults:`,
     `  delayMs: 2000`,
     ``,
-    `shots:`,
-    `  - id: home`,
-    `    path: /`,
-    `    caption: ${name} — home`,
-    `  # Add more screens, for example:`,
-    `  # - id: pricing`,
-    `  #   path: /pricing`,
-    `  #   caption: Simple, transparent pricing`,
-    `  # - id: dashboard`,
-    `  #   path: /dashboard`,
-    `  #   caption: Your workspace at a glance`,
+    shotsYaml,
     ``,
   ].join("\n");
 

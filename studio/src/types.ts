@@ -36,3 +36,10 @@ export interface Edit {
   version: 1;
   crops: Record<string, Rect>;
 }
+
+/** A screen found by auto-discovery (mirrors src/discover.ts). */
+export interface DiscoveredScreen {
+  path: string;
+  id: string;
+  caption: string;
+}
