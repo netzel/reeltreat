@@ -58,3 +58,24 @@ export function curationPath(project: string): string {
 export function rendersDir(project: string): string {
   return join(projectDir(project), "renders");
 }
+
+/**
+ * A unique, filesystem- and sort-safe id for one render run, derived from the
+ * moment it started, e.g. "2026-07-24_164512-789". Lexical order matches
+ * chronological order, so listing runs sorts newest-last. Each render writes
+ * into its own renders/<runId>/ folder, so a new render never overwrites an
+ * earlier one — every video produced is kept.
+ */
+export function renderRunId(now: Date): string {
+  const p = (n: number, width = 2): string => String(n).padStart(width, "0");
+  return (
+    `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}` +
+    `_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}` +
+    `-${p(now.getMilliseconds(), 3)}`
+  );
+}
+
+/** The folder a single render run writes into: projects/<name>/renders/<runId>/. */
+export function renderRunDir(project: string, runId: string): string {
+  return join(rendersDir(project), runId);
+}

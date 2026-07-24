@@ -34,7 +34,9 @@ projects/myapp/
   curated/         the shots curation picked, copied here in video order, hero
                    flagged — a browsable "what's actually in the reel?" view
   curation.json    the cached AI curation (ranks, callouts, tagline, cuts)
-  renders/         the finished demo-<N>s.mp4 files and poster.png
+  renders/         one timestamped subfolder per render run, each holding that
+                   run's demo-<N>s.mp4 files + poster.png — renders never
+                   overwrite each other
 ```
 
 The whole folder is gitignored (only the checked-in `projects/example/` ships),
@@ -185,9 +187,16 @@ npm run render -- myapp --duration 15 --fps 60
 - `--all` renders every tier present in the curation.
 - `--fps N` sets the frame rate (default 30).
 
-Outputs go to `projects/<project>/renders/`: `demo-<N>s.mp4` (h264) per tier and
-a single `poster.png`. Each run prints the output paths, their sizes, and the
+Each run writes to a fresh, uniquely-named folder
+`projects/<project>/renders/<runId>/` (the run id is a timestamp), holding
+`demo-<N>s.mp4` (h264) per tier and a single `poster.png`. Because every render
+gets its own folder, a new render never overwrites a previous one — every video
+you produce is kept. Each run prints the output paths, their sizes, and the
 total time.
+
+In an offline or locked-down environment where Remotion can't download its
+headless browser, point it at an already-installed Chrome/Chromium by setting
+`REMOTION_BROWSER_EXECUTABLE=/path/to/chrome` before running `render`.
 
 Scene timing follows the curation's per-shot seconds, capped at 5s per scene
 (any excess is redistributed) and floored at 1.2s (if a cut has more shots than
@@ -199,6 +208,39 @@ To preview and tweak compositions interactively, open Remotion Studio:
 ```sh
 npm run studio
 ```
+
+## Studio — the web UI
+
+Everything above is available from a local web UI that drives the whole pipeline —
+create a project, capture, curate, edit, and render — without touching the CLI or
+`curation.json`. Because a browser can't run Playwright, call Anthropic, or invoke
+Remotion directly, the UI talks to a small **bridge** server that runs the same
+`src/*` code the CLI does. Start both:
+
+```sh
+npm run bridge            # terminal 1 — the local bridge (127.0.0.1:5179)
+cd studio && npm run dev  # terminal 2 — the UI (opens http://localhost:5175)
+```
+
+The bridge binds to localhost only and never listens on a network — it executes
+captures and renders and writes files on your machine, so it must not be exposed.
+
+What the UI gives you over the CLI:
+
+- **Reorder the cut.** Each duration tier's shot order — the order shots are
+  layered into the video — is drag-free reorderable with ↑/↓ controls on the
+  Curate and Frame screens. The new order saves straight to `curation.json`, so
+  the next render uses it.
+- **Edit the text bubbles.** The per-shot **callout** labels and the **tagline**
+  are live editable fields — no hand-editing JSON. Pick a different hero, or
+  exclude/re-add a shot from a cut (seconds re-balance automatically so the cut
+  stays valid). Edits persist to `curation.json` on save, and any unsaved edits
+  are saved automatically before a render.
+- **Live progress.** Capture and render stream real per-shot / per-frame progress
+  into the UI, and the finished video plays inline with download links.
+
+The Studio is a standalone Vite app under `studio/`; the bridge lives in
+`src/bridge/`. In dev, Vite proxies `/api` and `/media` to the bridge.
 
 ### Generating a manifest
 

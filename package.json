@@ -10,6 +10,7 @@
     "capture": "tsx src/capture.ts",
     "curate": "tsx src/curate.ts",
     "render": "tsx src/render.ts",
+    "bridge": "tsx src/bridge/server.ts",
     "studio": "remotion studio remotion/index.ts",
     "typecheck": "tsc --noEmit && tsc -p remotion/tsconfig.json --noEmit",
     "test": "vitest run"

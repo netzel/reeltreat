@@ -299,59 +299,65 @@ function parseArgs(argv: string[]): Args {
   return { project, repo, baseUrl, force };
 }
 
-async function main(): Promise<void> {
-  const { project, repo, baseUrl, force } = parseArgs(process.argv.slice(2));
+/** Everything init produces, before it's written to disk. */
+export interface InitProjectResult {
+  yaml: string;
+  framework: Framework;
+  routesFound: number;
+  plan: ShotPlan;
+  brand: Brand;
+  baseUrlIsPlaceholder: boolean;
+}
 
-  const repoPath = resolve(repo);
+/**
+ * Introspect a local app repo and produce the manifest YAML (plus a summary of
+ * what was found), without touching the filesystem. Shared by the `init` CLI and
+ * the Studio bridge so both generate manifests identically. Throws a clear error
+ * for the cases the CLI would otherwise exit on (missing repo, unsupported
+ * framework, no routes), letting each caller decide how to surface it.
+ *
+ * @param client an Anthropic-compatible client for caption generation (injectable for tests).
+ */
+export async function initProject(opts: {
+  project: string;
+  repoPath: string;
+  baseUrl?: string;
+  client: CaptionClient;
+}): Promise<InitProjectResult> {
+  const repoPath = resolve(opts.repoPath);
   if (!existsSync(repoPath)) {
-    console.error(`Repo path does not exist: ${repoPath}`);
-    process.exit(1);
+    throw new Error(`Repo path does not exist: ${repoPath}`);
   }
   if (!existsSync(resolve(repoPath, "package.json"))) {
-    console.error(`No package.json in ${repoPath} — is this a JS/TS app repo?`);
-    process.exit(1);
-  }
-
-  const outPath = manifestPath(project);
-  if (existsSync(outPath) && !force) {
-    console.error(
-      `${outPath} already exists. Pass --force to overwrite it.`,
-    );
-    process.exit(1);
+    throw new Error(`No package.json in ${repoPath} — is this a JS/TS app repo?`);
   }
 
   const framework = detectFramework(repoPath);
   if (framework === "unknown") {
-    console.error(
+    throw new Error(
       `Could not detect a supported framework in ${repoPath}.\n` +
         `Supported: Next.js (App/Pages Router), SvelteKit, Vite + React.\n` +
         `Write the manifest by hand from projects/example/manifest.yaml instead.`,
     );
-    process.exit(1);
   }
 
   const routes = discoverRoutes(repoPath, framework);
   if (routes.length === 0) {
-    console.error(
+    throw new Error(
       `Detected ${framework}, but no routes could be auto-discovered ` +
         `(this framework has no filesystem routing convention reeltreat can read).\n` +
         `Write the manifest by hand from projects/example/manifest.yaml instead.`,
     );
-    process.exit(1);
   }
 
   const brand = extractBrand(repoPath);
-
-  const { anthropicApiKey } = loadEnv();
-
   const excerpts = collectRouteExcerpts(repoPath, routes);
-  const client = new Anthropic({ apiKey: anthropicApiKey }) as CaptionClient;
-  const { plan } = await generateCaptions(client, excerpts);
+  const { plan } = await generateCaptions(opts.client, excerpts);
   const shotPlan = planShots(routes, plan);
 
-  const effectiveBaseUrl = baseUrl ?? TODO_BASE_URL;
+  const effectiveBaseUrl = opts.baseUrl ?? TODO_BASE_URL;
   const yaml = buildManifestYaml({
-    project,
+    project: opts.project,
     baseUrl: effectiveBaseUrl,
     viewport: DEFAULT_VIEWPORT,
     brand,
@@ -359,16 +365,40 @@ async function main(): Promise<void> {
     dynamic: shotPlan.dynamic,
   });
 
+  return {
+    yaml,
+    framework,
+    routesFound: routes.length,
+    plan: shotPlan,
+    brand,
+    baseUrlIsPlaceholder: effectiveBaseUrl === TODO_BASE_URL,
+  };
+}
+
+async function main(): Promise<void> {
+  const { project, repo, baseUrl, force } = parseArgs(process.argv.slice(2));
+
+  const outPath = manifestPath(project);
+  if (existsSync(outPath) && !force) {
+    console.error(`${outPath} already exists. Pass --force to overwrite it.`);
+    process.exit(1);
+  }
+
+  const { anthropicApiKey } = loadEnv();
+  const client = new Anthropic({ apiKey: anthropicApiKey }) as CaptionClient;
+
+  const result = await initProject({ project, repoPath: repo, baseUrl, client });
+
   mkdirSync(projectDir(project), { recursive: true });
-  writeFileSync(outPath, yaml);
+  writeFileSync(outPath, result.yaml);
 
   printSummary(
     project,
-    framework,
-    routes.length,
-    shotPlan,
-    brand,
-    effectiveBaseUrl === TODO_BASE_URL,
+    result.framework,
+    result.routesFound,
+    result.plan,
+    result.brand,
+    result.baseUrlIsPlaceholder,
     outPath,
   );
 }
