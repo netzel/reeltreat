@@ -6,6 +6,7 @@
 // steps (capture, render) stream NDJSON progress lines; the rest are plain JSON.
 
 import type { Curation } from "./curation";
+import type { Edit, Rect } from "./types";
 
 export type ProjectStatus = "Draft" | "Captured" | "Curated" | "Rendered";
 
@@ -184,6 +185,21 @@ export const api = {
 
   saveCuration: (name: string, curation: Curation) =>
     sendJson<{ ok: true }>(`/api/projects/${encodeURIComponent(name)}/curation`, "PUT", { curation }),
+
+  getEdit: (name: string) =>
+    getJson<{ edit: Edit }>(`/api/projects/${encodeURIComponent(name)}/edit`).then((r) => r.edit),
+
+  setCrop: (name: string, shotId: string, rect: Rect) =>
+    sendJson<{ ok: true }>(`/api/projects/${encodeURIComponent(name)}/edit/crop`, "PUT", {
+      shotId,
+      rect,
+    }),
+
+  clearCrop: (name: string, shotId: string) =>
+    sendJson<{ ok: true }>(`/api/projects/${encodeURIComponent(name)}/edit/crop`, "PUT", {
+      shotId,
+      rect: null,
+    }),
 
   runCurate: (name: string, force = false) =>
     sendJson<{ cached: boolean; curation: Curation; curatedCount: number }>(

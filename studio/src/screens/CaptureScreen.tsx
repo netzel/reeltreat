@@ -1,6 +1,8 @@
 import { useStudio } from "../store";
 import { mediaUrl } from "../api";
 import { cv, hatch } from "../ui";
+import { cropImageStyle } from "../crop";
+import { CropModal } from "../components/CropModal";
 
 const STATUS_COLOR: Record<string, string> = {
   captured: "--success",
@@ -18,6 +20,9 @@ export function CaptureScreen() {
     busy,
     error,
     runCapture,
+    crops,
+    cropShotId,
+    openCrop,
     nav,
   } = useStudio();
 
@@ -79,18 +84,37 @@ export function CaptureScreen() {
           const color = status ? STATUS_COLOR[status] : "--text-faint";
           // Cache-bust so re-captures show fresh images.
           const src = mediaUrl(projectName, "captures", sh.file) + `?v=${doneCount}`;
+          const cropped = crops[sh.id];
+          const hasImage = Boolean(status || sh.captured);
+          const canCrop = hasImage && !running;
           return (
             <div key={sh.id} style={{ borderRadius: 9, overflow: "hidden", background: "var(--surface)", border: "1px solid var(--border)" }}>
-              <div style={{ position: "relative", height: 104, background: hatch(10) }}>
-                {(status || sh.captured) && (
-                  <img src={src} alt={sh.id} onError={(e) => ((e.target as HTMLImageElement).style.visibility = "hidden")} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                )}
+              <div style={{ position: "relative", height: 104, overflow: "hidden", background: hatch(10) }}>
+                {hasImage &&
+                  (cropped ? (
+                    // Show the cropped region as it'll appear in the reel.
+                    <img src={src} alt={sh.id} draggable={false} onError={(e) => ((e.target as HTMLImageElement).style.visibility = "hidden")} style={cropImageStyle(cropped)} />
+                  ) : (
+                    <img src={src} alt={sh.id} onError={(e) => ((e.target as HTMLImageElement).style.visibility = "hidden")} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  ))}
                 <span style={{ position: "absolute", top: 7, left: 8, fontFamily: "var(--mono)", fontSize: 10, color: "rgba(255,255,255,.85)", background: "rgba(0,0,0,.5)", padding: "2px 6px", borderRadius: 4 }}>{sh.id}</span>
                 {status && (
                   <span style={{ position: "absolute", top: 7, right: 8, fontSize: 9.5, fontWeight: 700, color: cv(color), background: "rgba(0,0,0,.55)", border: `1px solid ${cv(color)}`, borderRadius: 999, padding: "1px 7px" }}>{status}</span>
                 )}
                 {sh.kind === "manual" && (
                   <span style={{ position: "absolute", bottom: 7, left: 8, fontSize: 9.5, fontWeight: 700, color: "#1a1033", background: "var(--ai)", borderRadius: 999, padding: "1px 7px" }}>✦ manual</span>
+                )}
+                {cropped && (
+                  <span style={{ position: "absolute", bottom: 7, right: 8, fontSize: 9.5, fontWeight: 700, color: "var(--accent-contrast)", background: "var(--accent)", borderRadius: 999, padding: "1px 7px" }}>✂ cropped</span>
+                )}
+                {canCrop && (
+                  <button
+                    onClick={() => openCrop(sh.id)}
+                    title="Crop this shot"
+                    style={{ position: "absolute", bottom: 7, right: cropped ? 78 : 8, fontSize: 10.5, fontWeight: 600, color: "var(--text)", background: "rgba(20,22,27,.82)", border: "1px solid var(--border)", borderRadius: 6, padding: "2px 8px", cursor: "pointer" }}
+                  >
+                    ✂ Crop
+                  </button>
                 )}
               </div>
               <div style={{ padding: "8px 10px" }}>
@@ -112,6 +136,8 @@ export function CaptureScreen() {
         <div style={{ flex: 1 }} />
         <button onClick={() => nav("curate")} disabled={running} style={{ padding: "9px 18px", borderRadius: 8, border: "none", background: "var(--accent)", color: "var(--accent-contrast)", fontWeight: 600, fontSize: 13, cursor: running ? "not-allowed" : "pointer" }}>Continue to Curate →</button>
       </div>
+
+      {cropShotId && <CropModal />}
     </div>
   );
 }

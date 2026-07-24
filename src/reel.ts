@@ -4,6 +4,7 @@ import { screenshotFilename } from "./capture.js";
 import { projectDir as projectRoot } from "./paths.js";
 import type { Manifest } from "./manifest.js";
 import type { CurationResult } from "./curation-schema.js";
+import type { Rect } from "./edit-schema.js";
 import type { KenBurns, ReelBrand } from "../remotion/types.js";
 
 /**
@@ -38,6 +39,12 @@ export interface ReelScene {
   callout: string;
   durationInFrames: number;
   kenBurns: KenBurns;
+  /**
+   * Optional non-destructive crop (normalized to the source screenshot). When
+   * set, the render sub-rects the image and resizes it back to the viewport
+   * before the Ken Burns move; unset means the full screenshot is used.
+   */
+  crop?: Rect;
 }
 
 /** The animated opening card. */
@@ -69,6 +76,11 @@ export interface BuildReelOptions {
   projectDir?: string;
   /** Existence check, injectable for tests. Defaults to fs.existsSync. */
   fileExists?: (path: string) => boolean;
+  /**
+   * Non-destructive per-shot crops (from edit.json), keyed by shot id. A shot
+   * with no entry renders full-frame. render.ts loads these; tests pass them in.
+   */
+  crops?: Record<string, Rect>;
 }
 
 /**
@@ -329,6 +341,7 @@ export function buildReel(opts: BuildReelOptions): Reel {
     callout: calloutById.get(k.id) ?? "",
     durationInFrames: sceneFrames[i],
     kenBurns: kenBurnsForIndex(i),
+    crop: opts.crops?.[k.id],
   }));
 
   // 6. Renormalization invariant: everything must sum to exactly the target.

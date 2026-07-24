@@ -238,6 +238,26 @@ describe("kenBurns", () => {
   });
 });
 
+describe("crops", () => {
+  it("attaches a crop to the matching scene and leaves others uncropped", () => {
+    const crops = { b: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 } };
+    const reel = buildReel({ ...opts(manifest, fullCuration, 30, 30), crops });
+    const byId = new Map(reel.scenes.map((s) => [s.shotId, s]));
+    expect(byId.get("b")?.crop).toEqual(crops.b);
+    expect(byId.get("a")?.crop).toBeUndefined();
+  });
+
+  it("does not change scene timing or camera moves when a crop is present", () => {
+    const crops = { a: { x: 0, y: 0, w: 0.5, h: 0.5 } };
+    const plain = buildReel(opts(manifest, fullCuration, 30, 30));
+    const cropped = buildReel({ ...opts(manifest, fullCuration, 30, 30), crops });
+    expect(cropped.scenes.map((s) => s.durationInFrames)).toEqual(
+      plain.scenes.map((s) => s.durationInFrames),
+    );
+    expect(cropped.scenes.map((s) => s.kenBurns)).toEqual(plain.scenes.map((s) => s.kenBurns));
+  });
+});
+
 describe("missing tier", () => {
   it("throws listing the available tiers", () => {
     const curation = makeCuration({

@@ -1,44 +1,45 @@
 # reeltreat Studio (web UI)
 
 A local web front end for the reeltreat pipeline — a browser-based control panel
-for the same `capture → curate → render` flow the CLI runs. Built with Vite +
-React + TypeScript, it runs entirely on your machine (no deploy target, matching
-the project's local-first design).
+for the same `capture → curate → render` flow the CLI runs, plus cropping and
+manual-shot upload. Built with Vite + React + TypeScript, it runs entirely on your
+machine (no deploy target, matching the project's local-first design).
 
 ## Run it
 
+From the **repo root** (one command starts the bridge + UI together):
+
 ```sh
-cd studio
-npm install
-npm run dev        # opens http://localhost:5175
+npm install && npm --prefix studio install   # first time only
+npm run studio                                # opens http://localhost:5175
 ```
 
-Other scripts: `npm run build`, `npm run preview`, `npm run typecheck`, `npm test`.
+`npm run studio` launches the local **bridge** (`../src/bridge/server.ts`, port 5179)
+and this Vite dev server (port 5175) together, and stops both on Ctrl-C. Vite proxies
+`/api` and `/media` to the bridge, so the browser makes same-origin requests. Prefer
+separate terminals? `npm run bridge` (root) and `npm run dev` (here) do the same.
 
-## What's real vs. placeholder
+Other scripts here: `npm run build`, `npm run preview`, `npm run typecheck`, `npm test`.
 
-The UI is complete and navigable — all eight screens (Projects, New Project,
-Manifest & Shots, Authenticate, Capture, Curate, Frame Editor, Preview & Export)
-plus the Crop and Manual-photo panels, dark/light themes, and the step workflow.
+## How it talks to the pipeline
 
-The **backend is stubbed**. The browser can't run Playwright, call Anthropic, or
-shell out to Remotion directly, so those actions live in `src/api.ts` as
-placeholder async calls that resolve with the sample data in `src/data/mock.ts`.
-Each stub is annotated with the CLI verb it will eventually drive:
+The browser can't run Playwright, call Anthropic, or invoke Remotion directly, so
+those actions go through the **bridge** (`../src/bridge/server.ts` + `service.ts`),
+which calls the very same `../src/*` functions the CLI uses and streams progress back
+as NDJSON. `src/api.ts` is the typed client for it.
 
-| Studio action        | Pipeline call         | CLI equivalent      |
-| -------------------- | --------------------- | ------------------- |
-| Detect / New project | `api.detectTarget`    | `npm run init`      |
-| Authenticate         | `api.openAuth`        | `npm run login`     |
-| Capture              | `api.runCapture`      | `npm run capture`   |
-| Curate               | `api.runCurate`       | `npm run curate`    |
-| Export / render      | `api.runRender`       | `npm run render`    |
+| Studio action        | Bridge → pipeline call        | CLI equivalent      |
+| -------------------- | ----------------------------- | ------------------- |
+| Detect / New project | `svc.detectTarget` / `createProject` | `npm run init`  |
+| Authenticate         | `svc.startLogin`              | `npm run login`     |
+| Capture              | `svc.runCapture`              | `npm run capture`   |
+| Crop                 | `svc.setCrop` / `clearCrop` (edit.json) | — (Studio only) |
+| Curate + edits       | `svc.runCurate` / `saveCuration` | `npm run curate` |
+| Export / render      | `svc.runRender`               | `npm run render`    |
 
-Wiring these up means adding a small local bridge server (see `BRIDGE_URL` in
-`src/api.ts`) that invokes the existing `../src/*.ts` CLI entry points and streams
-progress back to the UI. That server does not exist yet — it's the "fill in later"
-part of the current spec. Replace the stub bodies (not their signatures) when it
-lands.
+Crops are non-destructive: a normalized rectangle per shot in the project's
+`edit.json`, applied by the renderer (`../src/render.ts`) — the captured screenshots
+are never altered.
 
 ## Structure
 
@@ -46,17 +47,17 @@ lands.
 src/
   main.tsx            entry
   App.tsx             shell: sidebar + top bar + step nav + active screen
-  theme.css           design tokens / reset / keyframes (ported from the prototype)
+  theme.css           design tokens / reset / keyframes
   store.tsx           app state + actions (React context)
   workflow.ts         pure step/title model (unit-tested)
-  api.ts              PLACEHOLDER backend client
-  types.ts            shared unions
+  curation.ts         pure curation edit model (unit-tested)
+  crop.ts             pure crop math (unit-tested)
+  api.ts              bridge client (fetch + NDJSON streaming)
+  types.ts            shared unions + Rect / Edit
   ui.ts               small style helpers
-  data/mock.ts        sample projects / shots / clips / curation
-  components/         Sidebar, TopBar, StepNav
-  screens/            one file per screen
-  modals/             CropModal, ManualModal
+  components/         Sidebar, TopBar, StepNav, CropModal
+  screens/            one file per screen (Projects, Target, Manifest, Auth,
+                      Capture, Curate, Frame, Preview)
 ```
 
-Design source: `../devresources/Reeltreat Studio UI prototype/`. Icons in
-`public/` are generated from `../brand/reeltreat-logo.png`.
+Icons in `public/` are generated from `../brand/reeltreat-logo.png`.

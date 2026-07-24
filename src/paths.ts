@@ -54,6 +54,14 @@ export function curationPath(project: string): string {
   return join(projectDir(project), "curation.json");
 }
 
+/**
+ * Per-project creative overrides — crops today, more later: projects/<name>/edit.json.
+ * Layered over the AI curation at render time; the captured screenshots stay untouched.
+ */
+export function editPath(project: string): string {
+  return join(projectDir(project), "edit.json");
+}
+
 /** Rendered videos and poster: projects/<name>/renders/. */
 export function rendersDir(project: string): string {
   return join(projectDir(project), "renders");

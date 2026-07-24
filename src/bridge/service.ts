@@ -34,6 +34,7 @@ import { renderProject, type RenderOptions, type RenderResult } from "../render.
 import { initProject } from "../init.js";
 import { runLogin, type LoginMode, type RunLoginOptions } from "../login.js";
 import { validateCuration, type CurationResult } from "../curation-schema.js";
+import { RectSchema, loadEdit, saveEdit, type Edit } from "../edit-schema.js";
 import type { CaptionClient } from "../captions.js";
 import { loadEnv } from "../env.js";
 import {
@@ -338,6 +339,44 @@ export function saveCuration(
   writeFileSync(curationPath(project), JSON.stringify(record, null, 2));
   // Refresh curated/ so the folder always mirrors the saved curation.
   writeCuratedSet(manifest, validated, capturesDir(project), curatedDir(project));
+  return { ok: true };
+}
+
+// ---- Creative overrides: edit.json (crops today) ----
+
+/** Read a project's edit.json (crops), or an empty edit if none exists. */
+export function getEdit(project: string): Edit {
+  return loadEdit(project);
+}
+
+/**
+ * Set a non-destructive crop for one shot. Validates that the shot exists in the
+ * manifest and that the rect is a valid normalized rectangle, then merges it into
+ * edit.json. The captured screenshot on disk is never touched.
+ */
+export function setCrop(project: string, shotId: string, rect: unknown): { ok: true } {
+  const manifest = loadManifest(project);
+  if (!manifest.shots.some((s) => s.id === shotId)) {
+    throw new Error(`shot "${shotId}" is not in manifest "${project}"`);
+  }
+  const parsed = RectSchema.safeParse(rect);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => i.message).join("; ");
+    throw new Error(`invalid crop: ${issues}`);
+  }
+  const edit = loadEdit(project);
+  edit.crops[shotId] = parsed.data;
+  saveEdit(project, edit);
+  return { ok: true };
+}
+
+/** Remove a shot's crop (reset it to full-frame / AI default). */
+export function clearCrop(project: string, shotId: string): { ok: true } {
+  const edit = loadEdit(project);
+  if (edit.crops[shotId]) {
+    delete edit.crops[shotId];
+    saveEdit(project, edit);
+  }
   return { ok: true };
 }
 
