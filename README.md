@@ -114,6 +114,29 @@ rendering treat it identically. Keep these files under **`manual/<project>/`** a
 the repo root; that folder is gitignored. If a manifest has only image shots,
 `capture` runs without launching a browser or needing a saved login.
 
+**Normalized to the viewport.** Manual images are scaled to the manifest
+`viewport` — the same size every browser shot is captured at — so scenes stay
+full-bleed and don't jump in size or letterbox in the reel. Two image-only
+fields control how (both rejected on a `path` shot):
+
+```yaml
+shots:
+  - id: live-transcription
+    image: manual/myapp/live-transcription.png
+    caption: Real-time transcription as you speak
+    fit: cover              # (default) scale to fill, then center-crop the overflow
+    # fit: contain          # instead, scale the whole image to fit and pad the rest
+    # background: "#0b0c0f"  # CSS color for that padding; used only when fit is contain
+```
+
+`cover` crops, `contain` pads. Capture logs each image's source and output
+dimensions, and warns (naming the shot) when the source aspect ratio differs
+from the viewport by more than ~20%, so you can switch to `contain` or re-crop
+rather than silently lose or letterbox content. At render time, reeltreat also
+verifies every screenshot matches the viewport and refuses to build the reel
+(listing the offenders) if a file is left over from an older viewport setting —
+re-run `capture` to fix it.
+
 ### Rendering
 
 `render` builds the video from your captured screenshots and cached curation —

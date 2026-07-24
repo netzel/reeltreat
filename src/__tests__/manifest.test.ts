@@ -306,4 +306,50 @@ describe("image shots", () => {
       expect(named, `error should name ${field}`).toBe(true);
     }
   });
+
+  it("accepts fit and background on an image shot", () => {
+    const result = ShotSchema.safeParse({
+      id: "mic",
+      caption: "Mic",
+      image: "mic.png",
+      fit: "contain",
+      background: "#101418",
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.fit).toBe("contain");
+    expect(result.data.background).toBe("#101418");
+  });
+
+  it("rejects an invalid fit value on an image shot", () => {
+    const result = ShotSchema.safeParse({
+      id: "mic",
+      caption: "Mic",
+      image: "mic.png",
+      fit: "squish",
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.issues.some((i) => i.path.includes("fit"))).toBe(true);
+  });
+
+  it("rejects fit and background on a browser (path) shot, naming the field", () => {
+    for (const [field, value] of [
+      ["fit", "cover"],
+      ["background", "#000000"],
+    ] as const) {
+      const result = ShotSchema.safeParse({
+        id: "a",
+        path: "/a",
+        caption: "A",
+        [field]: value,
+      });
+      expect(result.success, `${field} should be rejected on a path shot`).toBe(false);
+      if (result.success) continue;
+      const named = result.error.issues.some(
+        (i) => i.path.includes(field) && i.message.includes(field),
+      );
+      expect(named, `error should name ${field}`).toBe(true);
+    }
+  });
 });

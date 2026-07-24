@@ -116,6 +116,59 @@ export function resolveShotImagePath(
   return file;
 }
 
+export interface ScreenshotSize {
+  width: number;
+  height: number;
+}
+
+/** Reads an image's pixel dimensions. Injectable so tests avoid touching sharp. */
+export type ReadImageSize = (path: string) => Promise<ScreenshotSize>;
+
+/**
+ * The screenshot path capture writes for every shot in the manifest, in order.
+ * Same NN-<id>.png naming as resolveShotImagePath, but never throws — callers
+ * filter to the files that actually exist.
+ */
+export function screenshotPathsForManifest(
+  manifest: Manifest,
+  outDir: string = resolve("out", manifest.name),
+): { shotId: string; path: string }[] {
+  return manifest.shots.map((s, i) => ({
+    shotId: s.id,
+    path: join(outDir, "screenshots", screenshotFilename(i + 1, s.id)),
+  }));
+}
+
+/**
+ * Guard the render path: every screenshot must be exactly the manifest viewport
+ * size. Scenes are full-bleed, so a file left over from an older viewport would
+ * jump in size and letterboxing in the reel. Reads each file's dimensions via
+ * the injected `readSize` (render.ts supplies a sharp-backed reader; tests fake
+ * it) and throws listing each offender with its dimensions and the expected
+ * size. Passes silently when every file matches (or the list is empty).
+ */
+export async function assertScreenshotDimensions(
+  files: string[],
+  expected: ScreenshotSize,
+  readSize: ReadImageSize,
+): Promise<void> {
+  const offenders: string[] = [];
+  for (const file of files) {
+    const { width, height } = await readSize(file);
+    if (width !== expected.width || height !== expected.height) {
+      offenders.push(`  - ${file}: ${width}x${height}`);
+    }
+  }
+  if (offenders.length > 0) {
+    throw new Error(
+      `screenshot dimensions must match the manifest viewport ` +
+        `${expected.width}x${expected.height}, but these differ:\n` +
+        `${offenders.join("\n")}\n` +
+        `Re-run capture to normalize them: npm run capture`,
+    );
+  }
+}
+
 /**
  * Distribute `budget` frames across scenes weighted by `weights`, keeping each
  * scene within [minF, maxF]. Excess over the cap is redistributed proportionally

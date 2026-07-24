@@ -8,6 +8,14 @@ export const WAIT_UNTIL_VALUES = ["load", "domcontentloaded", "networkidle"] as 
 export type WaitUntil = (typeof WAIT_UNTIL_VALUES)[number];
 
 /**
+ * How a manual image shot is normalized to the manifest viewport at capture
+ * time. "cover" scales to fill and center-crops the overflow; "contain" scales
+ * the whole image to fit and pads the remainder with a background color.
+ */
+export const IMAGE_FIT_VALUES = ["cover", "contain"] as const;
+export type ImageFit = (typeof IMAGE_FIT_VALUES)[number];
+
+/**
  * Per-shot browser/capture settings. All optional here: a missing value falls
  * back to the manifest `defaults`, then to a built-in default, resolved by
  * resolveShotSettings — so we must be able to tell "unset" apart from an
@@ -29,6 +37,26 @@ const captureFields = {
   delayMs: z.number().int().nonnegative().optional(),
   /** Capture the full scrollable page rather than just the viewport. Built-in default: false. */
   fullPage: z.boolean().optional(),
+};
+
+/**
+ * Per-shot options that apply ONLY to manual image shots. They control how the
+ * supplied image is normalized to the viewport and are rejected on browser
+ * (path) shots by the superRefine below — the mirror image of how the
+ * browser-only captureFields are rejected on image shots.
+ */
+const imageFields = {
+  /**
+   * Fit mode when scaling the image to the manifest viewport. "cover" (default)
+   * fills and center-crops; "contain" fits the whole image and pads the rest
+   * with `background`. Built-in default: "cover".
+   */
+  fit: z.enum(IMAGE_FIT_VALUES).optional(),
+  /**
+   * CSS color for the padding when fit is "contain" (ignored for "cover").
+   * Parsed by sharp's color module. Built-in default: a neutral dark.
+   */
+  background: z.string().optional(),
 };
 
 /**
@@ -57,6 +85,7 @@ export const ShotSchema = z
     /** Human-readable caption for the shot. */
     caption: z.string(),
     ...captureFields,
+    ...imageFields,
   })
   .superRefine((shot, ctx) => {
     const hasPath = shot.path !== undefined;
@@ -83,6 +112,19 @@ export const ShotSchema = z
           ctx.addIssue({
             code: "custom",
             message: `'${field}' is a browser-only setting and cannot be used on an image shot`,
+            path: [field],
+          });
+        }
+      }
+    }
+
+    if (hasPath) {
+      // Image normalization settings make no sense for a browser capture.
+      for (const field of Object.keys(imageFields) as (keyof typeof imageFields)[]) {
+        if (shot[field] !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            message: `'${field}' is an image-only setting and cannot be used on a browser (path) shot`,
             path: [field],
           });
         }

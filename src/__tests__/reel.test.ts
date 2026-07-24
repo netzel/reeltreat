@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   allocateFrames,
+  assertScreenshotDimensions,
   buildReel,
   kenBurnsForIndex,
   roundToExactSum,
   type BuildReelOptions,
+  type ScreenshotSize,
 } from "../reel.js";
 import { ManifestSchema, type Manifest } from "../manifest.js";
 import type { CurationResult } from "../curation-schema.js";
@@ -248,6 +250,48 @@ describe("missing tier", () => {
     expect(() => buildReel(opts(manifest, curation, 30, 30))).toThrow(
       /Available tiers: 5s, 15s/,
     );
+  });
+});
+
+describe("assertScreenshotDimensions", () => {
+  const expected: ScreenshotSize = { width: 1440, height: 900 };
+  const reader = (sizes: Record<string, ScreenshotSize>) => async (p: string) => sizes[p];
+
+  it("passes when every file matches the expected viewport", async () => {
+    const sizes = {
+      "a.png": { width: 1440, height: 900 },
+      "b.png": { width: 1440, height: 900 },
+    };
+    await expect(
+      assertScreenshotDimensions(Object.keys(sizes), expected, reader(sizes)),
+    ).resolves.toBeUndefined();
+  });
+
+  it("passes on an empty file list", async () => {
+    await expect(
+      assertScreenshotDimensions([], expected, reader({})),
+    ).resolves.toBeUndefined();
+  });
+
+  it("throws listing each offending file with its dimensions and the expected size", async () => {
+    const sizes = {
+      "a.png": { width: 1440, height: 900 }, // matches
+      "b.png": { width: 800, height: 600 }, // stale
+      "c.png": { width: 1280, height: 720 }, // stale
+    };
+    const err = await assertScreenshotDimensions(
+      Object.keys(sizes),
+      expected,
+      reader(sizes),
+    ).catch((e: Error) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    const msg = (err as Error).message;
+    expect(msg).toContain("1440x900"); // expected size
+    expect(msg).toContain("b.png: 800x600");
+    expect(msg).toContain("c.png: 1280x720");
+    expect(msg).not.toContain("a.png"); // the matching file isn't flagged
+    expect(msg).toMatch(/capture/); // tells the user how to fix it
   });
 });
 

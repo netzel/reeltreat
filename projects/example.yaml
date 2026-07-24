@@ -91,3 +91,11 @@ shots:
   - id: live-transcription
     caption: Real-time transcription as you speak
     image: manual/myapp/live-transcription.png
+    # Manual images are normalized to the viewport above so they match browser
+    # captures exactly — otherwise full-bleed scenes jump in size and letterbox.
+    # `fit` controls how (image-only fields; rejected on a browser `path` shot):
+    #   fit: cover            # (default) scale to fill, then center-crop the overflow
+    #   fit: contain          # scale the whole image to fit, then pad the rest
+    #   background: "#0b0c0f" # CSS color for the padding; only used when fit is contain
+    # Capture warns if the source aspect differs from the viewport by a lot, so
+    # you can switch to contain or re-crop rather than lose or letterbox content.

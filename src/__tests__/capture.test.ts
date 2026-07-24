@@ -49,6 +49,16 @@ async function writeImage(path: string, format: "png" | "jpeg"): Promise<void> {
   await (format === "png" ? img.png() : img.jpeg()).toFile(path);
 }
 
+/** A solid image of an explicit size (default a distinctive non-black color). */
+async function writeSized(
+  path: string,
+  width: number,
+  height: number,
+  background = { r: 10, g: 20, b: 30 },
+): Promise<void> {
+  await sharp({ create: { width, height, channels: 3, background } }).png().toFile(path);
+}
+
 /** A stub Page with vi.fn() for every method captureShot touches. */
 function stubPage() {
   return {
@@ -299,8 +309,11 @@ describe("resolveImageShot", () => {
   let repoRoot: string;
   let outDir: string;
 
-  const imgShot = (image: string): Shot =>
-    ShotSchema.parse({ id: "mic", caption: "Mic", image });
+  // A 4:3 viewport, so a square source visibly crops (cover) or pads (contain).
+  const viewport = { width: 400, height: 300 };
+
+  const imgShot = (image: string, extra: Partial<Shot> = {}): Shot =>
+    ShotSchema.parse({ id: "mic", caption: "Mic", image, ...extra });
 
   beforeEach(() => {
     repoRoot = mkdtempSync(join(tmpdir(), "reeltreat-img-"));
@@ -313,7 +326,7 @@ describe("resolveImageShot", () => {
 
   it("writes a relative image to NN-<id>.png, resolved against the repo root", async () => {
     await writeImage(join(repoRoot, "mic.png"), "png");
-    const { file, source } = await resolveImageShot(imgShot("mic.png"), 2, repoRoot, outDir);
+    const { file, source } = await resolveImageShot(imgShot("mic.png"), 2, repoRoot, outDir, viewport);
 
     expect(file).toBe(join(outDir, "02-mic.png"));
     expect(source).toBe(join(repoRoot, "mic.png"));
@@ -322,13 +335,13 @@ describe("resolveImageShot", () => {
 
   it("throws a clear error naming the shot id and resolved path when the source is missing", async () => {
     await expect(
-      resolveImageShot(imgShot("nope.png"), 1, repoRoot, outDir),
+      resolveImageShot(imgShot("nope.png"), 1, repoRoot, outDir, viewport),
     ).rejects.toThrow(/image shot "mic": source file not found at .*nope\.png/);
   });
 
   it("converts a JPEG source to PNG", async () => {
     await writeImage(join(repoRoot, "mic.jpg"), "jpeg");
-    const { file } = await resolveImageShot(imgShot("mic.jpg"), 1, repoRoot, outDir);
+    const { file } = await resolveImageShot(imgShot("mic.jpg"), 1, repoRoot, outDir, viewport);
 
     const meta = await sharp(file).metadata();
     expect(meta.format).toBe("png");
@@ -339,11 +352,78 @@ describe("resolveImageShot", () => {
     await writeImage(abs, "png");
     const otherBase = mkdtempSync(join(tmpdir(), "reeltreat-other-"));
 
-    const { source, file } = await resolveImageShot(imgShot(abs), 1, otherBase, outDir);
+    const { source, file } = await resolveImageShot(imgShot(abs), 1, otherBase, outDir, viewport);
 
     expect(source).toBe(abs); // absolute, not joined onto otherBase
     expect(existsSync(file)).toBe(true);
     rmSync(otherBase, { recursive: true, force: true });
+  });
+
+  it("downscales a larger image to exactly the viewport dimensions", async () => {
+    await writeSized(join(repoRoot, "big.png"), 1200, 900); // same 4:3 aspect
+    const r = await resolveImageShot(imgShot("big.png"), 1, repoRoot, outDir, viewport);
+
+    const meta = await sharp(r.file).metadata();
+    expect([meta.width, meta.height]).toEqual([400, 300]);
+    expect([r.outputWidth, r.outputHeight]).toEqual([400, 300]);
+    expect([r.sourceWidth, r.sourceHeight]).toEqual([1200, 900]);
+    expect(r.aspectWarning).toBeUndefined(); // same aspect, no crop/pad
+  });
+
+  it("upscales a smaller image to exactly the viewport dimensions", async () => {
+    await writeSized(join(repoRoot, "small.png"), 40, 30); // same 4:3 aspect
+    const { file } = await resolveImageShot(imgShot("small.png"), 1, repoRoot, outDir, viewport);
+
+    const meta = await sharp(file).metadata();
+    expect([meta.width, meta.height]).toEqual([400, 300]);
+  });
+
+  it("center-crops a different aspect to the viewport with default fit (cover)", async () => {
+    await writeSized(join(repoRoot, "square.png"), 400, 400, { r: 200, g: 50, b: 50 });
+    const r = await resolveImageShot(imgShot("square.png"), 1, repoRoot, outDir, viewport);
+
+    expect(r.fit).toBe("cover");
+    const img = sharp(r.file);
+    const meta = await img.metadata();
+    expect([meta.width, meta.height]).toEqual([400, 300]); // exact viewport
+    // Cover fills the frame, so the top-left pixel is the (cropped) image, not padding.
+    const [r0, g0, b0] = await img.extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer();
+    expect([r0, g0, b0]).toEqual([200, 50, 50]);
+  });
+
+  it("pads a different aspect to the viewport with fit 'contain'", async () => {
+    await writeSized(join(repoRoot, "square2.png"), 400, 400, { r: 200, g: 50, b: 50 });
+    const r = await resolveImageShot(
+      imgShot("square2.png", { fit: "contain", background: "#000000" }),
+      1,
+      repoRoot,
+      outDir,
+      viewport,
+    );
+
+    expect(r.fit).toBe("contain");
+    const img = sharp(r.file);
+    const meta = await img.metadata();
+    expect([meta.width, meta.height]).toEqual([400, 300]); // exact viewport
+    // Contain letterboxes a 1:1 source into 4:3: the top-left pixel is padding.
+    const [r0, g0, b0] = await img.extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer();
+    expect([r0, g0, b0]).toEqual([0, 0, 0]);
+  });
+
+  it("warns when the source aspect differs from the viewport beyond the threshold", async () => {
+    await writeSized(join(repoRoot, "wide.png"), 400, 100); // 4:1 vs 4:3
+    const { aspectWarning } = await resolveImageShot(imgShot("wide.png"), 1, repoRoot, outDir, viewport);
+
+    expect(aspectWarning).toBeDefined();
+    expect(aspectWarning).toContain("mic");
+    expect(aspectWarning).toContain("cropping");
+  });
+
+  it("does not warn when the source aspect is close to the viewport", async () => {
+    await writeSized(join(repoRoot, "near.png"), 396, 300); // ~1% off 4:3
+    const { aspectWarning } = await resolveImageShot(imgShot("near.png"), 1, repoRoot, outDir, viewport);
+
+    expect(aspectWarning).toBeUndefined();
   });
 });
 

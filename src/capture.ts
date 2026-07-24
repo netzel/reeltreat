@@ -1,5 +1,4 @@
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -14,9 +13,11 @@ import {
   isImageShot,
   loadManifest,
   resolveShotSettings,
+  type ImageFit,
   type Manifest,
   type Shot,
   type ShotDefaults,
+  type Viewport,
 } from "./manifest.js";
 import { assertManifestReady } from "./doctor.js";
 
@@ -82,29 +83,55 @@ export function pruneStaleOutputs(
   return { pruned, curationRemoved };
 }
 
+/** Built-in fit when an image shot doesn't set one. */
+export const DEFAULT_IMAGE_FIT: ImageFit = "cover";
+/** Neutral dark used to pad "contain" letterboxing when no background is set. */
+export const DEFAULT_IMAGE_BACKGROUND = "#0b0c0f";
+/**
+ * Warn when a source's aspect ratio differs from the viewport's by more than
+ * this fraction — past it, "cover" crops away or "contain" pads a lot of the
+ * frame, and the user probably wants to switch fit or re-crop.
+ */
+const ASPECT_MISMATCH_THRESHOLD = 0.2;
+
 export interface ImageShotResult {
   /** Destination PNG written into the screenshots dir. */
   file: string;
-  /** Resolved absolute source path that was copied/converted. */
+  /** Resolved absolute source path that was normalized. */
   source: string;
+  /** Source image width/height before normalization. */
+  sourceWidth: number;
+  sourceHeight: number;
+  /** Output dimensions — always the manifest viewport. */
+  outputWidth: number;
+  outputHeight: number;
+  /** Fit mode applied. */
+  fit: ImageFit;
+  /** Set when the source aspect differs enough that significant crop/pad occurs. */
+  aspectWarning?: string;
 }
 
 /**
  * Resolve a manual image shot — no browser involved. Verify the user-supplied
- * source exists, then write it into `outDir` under the same NN-<id>.png naming
- * as a browser capture, converting to PNG when the source isn't already PNG.
- * Because the file lands in the same place with the same name, everything
- * downstream (curate, and the future render step) is agnostic to how the
- * screenshot was produced.
+ * source exists, then normalize it to the manifest viewport and write it into
+ * `outDir` under the same NN-<id>.png naming as a browser capture. Normalizing
+ * to the exact viewport is what keeps manual shots consistent with browser
+ * captures — full-bleed scenes otherwise jump in size and letterbox in the reel.
+ * "cover" (default) scales to fill and center-crops the overflow; "contain"
+ * scales the whole image to fit and pads the rest with `background`. Because the
+ * file lands in the same place, at the same size, with the same name, everything
+ * downstream (curate, render) is agnostic to how the screenshot was produced.
  *
  * @param manifestDir base dir that a relative `image` path resolves against (the repo root).
  * @param index 1-based position, used for the output filename prefix.
+ * @param viewport target dimensions every screenshot is normalized to.
  */
 export async function resolveImageShot(
   shot: Shot,
   index: number,
   manifestDir: string,
   outDir: string,
+  viewport: Viewport,
 ): Promise<ImageShotResult> {
   if (shot.image === undefined) {
     throw new Error(`resolveImageShot called on a non-image shot: "${shot.id}"`);
@@ -120,16 +147,61 @@ export async function resolveImageShot(
     );
   }
 
-  const file = join(outDir, screenshotFilename(index, shot.id));
-  if (source.toLowerCase().endsWith(".png")) {
-    // Already PNG — a straight copy preserves it exactly.
-    copyFileSync(source, file);
-  } else {
-    // JPEG / WebP / etc. — normalize to PNG so downstream never has to care.
-    await sharp(source).png().toFile(file);
+  const fit = shot.fit ?? DEFAULT_IMAGE_FIT;
+  const background = shot.background ?? DEFAULT_IMAGE_BACKGROUND;
+
+  const meta = await sharp(source).metadata();
+  const sourceWidth = meta.width;
+  const sourceHeight = meta.height;
+  if (!sourceWidth || !sourceHeight) {
+    throw new Error(
+      `image shot "${shot.id}": could not read image dimensions from ${source}`,
+    );
   }
 
-  return { file, source };
+  const file = join(outDir, screenshotFilename(index, shot.id));
+  // resize() enlarges as well as shrinks by default (withoutEnlargement unset),
+  // so small sources scale up too. position:"centre" center-crops for "cover";
+  // background is only used for "contain" padding.
+  await sharp(source)
+    .resize({
+      width: viewport.width,
+      height: viewport.height,
+      fit,
+      position: "centre",
+      background,
+    })
+    .png()
+    .toFile(file);
+
+  // Flag a large aspect-ratio gap so the user can pick the other fit or re-crop.
+  const sourceAspect = sourceWidth / sourceHeight;
+  const targetAspect = viewport.width / viewport.height;
+  const aspectDelta = Math.abs(sourceAspect - targetAspect) / targetAspect;
+  let aspectWarning: string | undefined;
+  if (aspectDelta > ASPECT_MISMATCH_THRESHOLD) {
+    const pct = Math.round(aspectDelta * 100);
+    const effect = fit === "contain" ? "padding" : "cropping";
+    const advice =
+      fit === "contain"
+        ? `re-crop the source toward ${viewport.width}x${viewport.height} to reduce the bars`
+        : `set fit: "contain" to pad instead of crop, or re-crop the source`;
+    aspectWarning =
+      `image shot "${shot.id}": source ${sourceWidth}x${sourceHeight} differs from the ` +
+      `${viewport.width}x${viewport.height} viewport aspect by ~${pct}% — significant ${effect} ` +
+      `will occur; ${advice}`;
+  }
+
+  return {
+    file,
+    source,
+    sourceWidth,
+    sourceHeight,
+    outputWidth: viewport.width,
+    outputHeight: viewport.height,
+    fit,
+    aspectWarning,
+  };
 }
 
 /** The methods captureShot drives — kept narrow so tests can stub a fake page. */
@@ -270,14 +342,22 @@ export async function captureProject(
     const index = i + 1;
     try {
       if (isImageShot(shot)) {
-        const { file, source } = await resolveImageShot(
+        const r = await resolveImageShot(
           shot,
           index,
           repoRoot,
           outDir,
+          manifest.viewport,
         );
-        console.log(`${shot.id}  (manual: ${source})  ->  ${file}`);
-        results.push({ id: shot.id, file, kind: "manual" });
+        console.log(`${shot.id}  (manual: ${r.source})  ->  ${r.file}`);
+        console.log(
+          `  normalized ${r.sourceWidth}x${r.sourceHeight} -> ${r.outputWidth}x${r.outputHeight} (fit: ${r.fit})`,
+        );
+        if (r.aspectWarning) {
+          warned.push(shot.id);
+          console.warn(`WARN ${shot.id}: ${r.aspectWarning}`);
+        }
+        results.push({ id: shot.id, file: r.file, kind: "manual" });
       } else {
         if (!page) {
           throw new Error(`internal: no browser page for shot "${shot.id}"`);

@@ -1,12 +1,19 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import { loadManifest, type Manifest } from "./manifest.js";
 import { validateCuration, type CurationResult } from "./curation-schema.js";
 import { assertManifestReady } from "./doctor.js";
-import { buildReel, resolveShotImagePath, type Reel } from "./reel.js";
+import {
+  assertScreenshotDimensions,
+  buildReel,
+  resolveShotImagePath,
+  screenshotPathsForManifest,
+  type Reel,
+} from "./reel.js";
 import { CROSSFADE_FRAMES, type PosterProps, type ReelProps } from "../remotion/types.js";
 import { withEsbuildTsconfig } from "../remotion/webpack-override.js";
 
@@ -119,6 +126,21 @@ async function main(): Promise<void> {
 
   const outDir = resolve("out", project);
   const repoRoot = resolve(".");
+
+  // Guard before the expensive bundle: every captured screenshot must match the
+  // manifest viewport. A file left from an older viewport setting would jump in
+  // size and letterbox in the full-bleed scenes. Only check files that exist —
+  // a genuinely missing shot is reported later by resolveShotImagePath.
+  const screenshots = screenshotPathsForManifest(manifest, outDir)
+    .map((s) => s.path)
+    .filter((p) => existsSync(p));
+  await assertScreenshotDimensions(screenshots, manifest.viewport, async (p) => {
+    const meta = await sharp(p).metadata();
+    if (!meta.width || !meta.height) {
+      throw new Error(`could not read image dimensions: ${p}`);
+    }
+    return { width: meta.width, height: meta.height };
+  });
 
   // Which tiers to render.
   const tiers = all
