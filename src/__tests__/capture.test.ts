@@ -274,7 +274,7 @@ describe("pruneStaleOutputs", () => {
 
   beforeEach(() => {
     projectOutDir = mkdtempSync(join(tmpdir(), "reeltreat-outputs-"));
-    shotsDir = join(projectOutDir, "screenshots");
+    shotsDir = join(projectOutDir, "captures");
     mkdirSync(shotsDir, { recursive: true });
   });
   afterEach(() => {
@@ -454,7 +454,7 @@ describe("captureProject", () => {
 
     const result = await captureProject({
       manifest: manifest([{ id: "a", caption: "A", image: "a.png" }]),
-      repoRoot,
+      imageBaseDir: repoRoot,
       outDir,
       statePath: "unused.json",
     });
@@ -476,7 +476,7 @@ describe("captureProject", () => {
         { id: "mic", caption: "Mic", image: "mic.png" },
         { id: "about", path: "/about", caption: "About" },
       ]),
-      repoRoot,
+      imageBaseDir: repoRoot,
       outDir,
       statePath: "auth.json",
     });

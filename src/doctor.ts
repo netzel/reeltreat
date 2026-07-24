@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { manifestPath } from "./paths.js";
 
 /**
  * Pre-flight check for generated manifests. `init` writes greppable placeholder
@@ -59,7 +59,7 @@ export function formatDoctorReport(
   projectName: string,
   result: DoctorResult,
 ): string {
-  const header = `projects/${projectName}.yaml is not ready:`;
+  const header = `projects/${projectName}/manifest.yaml is not ready:`;
   const body = result.issues
     .map((iss) => `  line ${iss.line}: ${iss.message}`)
     .join("\n");
@@ -72,7 +72,7 @@ export function formatDoctorReport(
  * left for loadManifest to report.
  */
 export function assertManifestReady(projectName: string): void {
-  const file = resolve("projects", `${projectName}.yaml`);
+  const file = manifestPath(projectName);
   let text: string;
   try {
     text = readFileSync(file, "utf8");

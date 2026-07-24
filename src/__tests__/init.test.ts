@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -235,13 +235,14 @@ describe("generateCaptions request shape", () => {
 describe("init CLI overwrite protection", () => {
   const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
   const project = "__init_overwrite_test__";
-  const manifestPath = join(repoRoot, "projects", `${project}.yaml`);
+  const manifestPath = join(repoRoot, "projects", project, "manifest.yaml");
 
   afterEach(() => {
-    rmSync(manifestPath, { force: true });
+    rmSync(dirname(manifestPath), { recursive: true, force: true });
   });
 
   it("refuses to overwrite an existing manifest without --force", () => {
+    mkdirSync(dirname(manifestPath), { recursive: true });
     writeFileSync(manifestPath, "name: existing\n");
     let status = 0;
     let stderr = "";

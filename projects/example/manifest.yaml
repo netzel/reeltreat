@@ -1,6 +1,14 @@
 # Example reeltreat project manifest.
 #
-# Copy this file to projects/<your-project>.yaml and edit it, then run:
+# Everything for a project lives in one folder: projects/<your-project>/
+#   manifest.yaml   this file
+#   manual/         screenshots you took by hand (source for `image` shots below)
+#   captures/       what `capture` writes (browser + normalized manual shots)
+#   curated/        the shots curation picked, in video order (written by `curate`)
+#   curation.json   the cached AI curation
+#   renders/        the finished demo-<N>s.mp4 files and poster.png
+#
+# Copy this folder to projects/<your-project>/ and edit manifest.yaml, then run:
 #   npm run login   -- <your-project>   # one-time: log in, session is saved
 #   npm run capture -- <your-project>   # screenshots every shot below
 #
@@ -38,6 +46,8 @@ defaults:
   #   fullPage: false
 
 # Brand tokens (all optional) used later by the render layer.
+# Relative asset paths (like logoPath) resolve against this project folder, so
+# assets/logo.svg means projects/<project>/assets/logo.svg. Absolute paths work too.
 brand:
   logoPath: ./assets/logo.svg
   primaryColor: "#0B5FFF"
@@ -86,11 +96,12 @@ shots:
   # audio, or a human in the loop (here, a live voice-transcription view being
   # driven by a real microphone). Provide `image` instead of `path`.
   # Browser-only settings (waitUntil, timeoutMs, waitFor, delayMs, fullPage) are
-  # not allowed on an image shot. Keep the file under manual/<project>/ at the
-  # repo root (that folder is gitignored, so your assets never ship).
+  # not allowed on an image shot. Drop the file in this project's manual/ folder
+  # (projects/<project>/manual/) — the path is resolved against the project
+  # folder, and the whole folder is gitignored, so your assets never ship.
   - id: live-transcription
     caption: Real-time transcription as you speak
-    image: manual/myapp/live-transcription.png
+    image: manual/live-transcription.png
     # Manual images are normalized to the viewport above so they match browser
     # captures exactly — otherwise full-bleed scenes jump in size and letterbox.
     # `fit` controls how (image-only fields; rejected on a browser `path` shot):

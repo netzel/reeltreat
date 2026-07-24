@@ -1,12 +1,15 @@
 node_modules/
-out/
 auth/
-manual/
 .env
 *.log
 dist/
-projects/*.yaml
-!projects/example.yaml
+# Everything under projects/ is a user's private project folder (manifest +
+# assets + renders) except the checked-in example. Ignore all projects, keep
+# the example folder but not any assets someone generates by running it.
+projects/*
+!projects/example/
+projects/example/*
+!projects/example/manifest.yaml
 devresources/
 studio/node_modules/
 studio/dist/

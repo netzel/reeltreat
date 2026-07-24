@@ -36,7 +36,7 @@ export const api = {
     };
   },
 
-  /** `npm run init` — write projects/<name>.yaml. */
+  /** `npm run init` — write projects/<name>/manifest.yaml. */
   async createProject(_input: { name: string; baseUrl: string }) {
     await delay(300);
     return { ok: true as const };
@@ -70,8 +70,8 @@ export const api = {
     await delay(2400);
     const tier = _input.tier;
     return {
-      video: `out/${_input.project}/demo-${tier}s.mp4`,
-      poster: `out/${_input.project}/poster.png`,
+      video: `projects/${_input.project}/renders/demo-${tier}s.mp4`,
+      poster: `projects/${_input.project}/renders/poster.png`,
       cut: tierCuts(tier),
       sizeMb: 8.4,
     };

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
@@ -14,6 +14,7 @@ import {
   screenshotPathsForManifest,
   type Reel,
 } from "./reel.js";
+import { curationPath, projectDir, rendersDir } from "./paths.js";
 import { CROSSFADE_FRAMES, type PosterProps, type ReelProps } from "../remotion/types.js";
 import { withEsbuildTsconfig } from "../remotion/webpack-override.js";
 
@@ -53,9 +54,9 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-/** Load and re-validate out/<project>/curation.json (fails clearly if absent). */
+/** Load and re-validate projects/<project>/curation.json (fails clearly if absent). */
 function loadCuration(project: string, manifest: Manifest): CurationResult {
-  const path = resolve("out", project, "curation.json");
+  const path = curationPath(project);
   if (!existsSync(path)) {
     throw new Error(
       `No curation at ${path}. Run: npm run curate -- ${project} first`,
@@ -124,14 +125,18 @@ async function main(): Promise<void> {
   const manifest = loadManifest(project);
   const curation = loadCuration(project, manifest);
 
-  const outDir = resolve("out", project);
+  const projDir = projectDir(project);
+  const outDir = rendersDir(project);
+  mkdirSync(outDir, { recursive: true });
+  // The tool's own repo root, used only to locate the Remotion bundle entry —
+  // distinct from projDir (the project's asset folder).
   const repoRoot = resolve(".");
 
   // Guard before the expensive bundle: every captured screenshot must match the
   // manifest viewport. A file left from an older viewport setting would jump in
   // size and letterbox in the full-bleed scenes. Only check files that exist —
   // a genuinely missing shot is reported later by resolveShotImagePath.
-  const screenshots = screenshotPathsForManifest(manifest, outDir)
+  const screenshots = screenshotPathsForManifest(manifest, projDir)
     .map((s) => s.path)
     .filter((p) => existsSync(p));
   await assertScreenshotDimensions(screenshots, manifest.viewport, async (p) => {
@@ -152,7 +157,7 @@ async function main(): Promise<void> {
   if (manifest.brand.logoPath) {
     const logoPath = isAbsolute(manifest.brand.logoPath)
       ? manifest.brand.logoPath
-      : resolve(repoRoot, manifest.brand.logoPath);
+      : resolve(projDir, manifest.brand.logoPath);
     if (existsSync(logoPath)) logoSrc = toDataUri(logoPath);
     else console.warn(`brand.logoPath not found at ${logoPath}; rendering without a logo`);
   }
@@ -168,7 +173,7 @@ async function main(): Promise<void> {
   const outputs: { path: string; bytes: number }[] = [];
 
   for (const tier of tiers) {
-    const reel = buildReel({ manifest, curation, durationSeconds: tier, fps });
+    const reel = buildReel({ manifest, curation, durationSeconds: tier, fps, projectDir: projDir });
     const inputProps = reelToProps(reel, logoSrc) as unknown as Record<string, unknown>;
 
     const composition = await selectComposition({ serveUrl, id: "Reel", inputProps });
@@ -190,7 +195,7 @@ async function main(): Promise<void> {
   }
 
   // Hero poster still (duration-independent, rendered once).
-  const heroPath = resolveShotImagePath(manifest, curation.heroShotId, outDir);
+  const heroPath = resolveShotImagePath(manifest, curation.heroShotId, projDir);
   const posterProps: PosterProps = {
     fps,
     width: manifest.viewport.width,

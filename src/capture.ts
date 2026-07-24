@@ -8,6 +8,7 @@ import {
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { capturesDir, projectDir } from "./paths.js";
 import { chromium, type Browser, type Page } from "playwright";
 import {
   isImageShot,
@@ -60,23 +61,24 @@ export interface PruneResult {
 }
 
 /**
- * Prune stale screenshots for a project and, if anything was pruned, delete the
+ * Prune stale captures for a project and, if anything was pruned, delete the
  * now-stale curation.json (it references shots that may no longer exist).
- * `projectOutDir` is out/<project>; screenshots live in its screenshots/ subdir.
+ * `projectDir` is projects/<project>; captures live in its captures/ subdir and
+ * curation.json sits at its root.
  */
 export function pruneStaleOutputs(
-  projectOutDir: string,
+  projectDir: string,
   expectedFilenames: string[],
 ): PruneResult {
   const pruned = pruneStaleScreenshots(
-    join(projectOutDir, "screenshots"),
+    join(projectDir, "captures"),
     expectedFilenames,
   );
   let curationRemoved = false;
   if (pruned.length > 0) {
-    const curationPath = join(projectOutDir, "curation.json");
-    if (existsSync(curationPath)) {
-      rmSync(curationPath);
+    const curationFile = join(projectDir, "curation.json");
+    if (existsSync(curationFile)) {
+      rmSync(curationFile);
       curationRemoved = true;
     }
   }
@@ -122,14 +124,14 @@ export interface ImageShotResult {
  * file lands in the same place, at the same size, with the same name, everything
  * downstream (curate, render) is agnostic to how the screenshot was produced.
  *
- * @param manifestDir base dir that a relative `image` path resolves against (the repo root).
+ * @param imageBaseDir base dir a relative `image` path resolves against (the project folder, projects/<project>/).
  * @param index 1-based position, used for the output filename prefix.
  * @param viewport target dimensions every screenshot is normalized to.
  */
 export async function resolveImageShot(
   shot: Shot,
   index: number,
-  manifestDir: string,
+  imageBaseDir: string,
   outDir: string,
   viewport: Viewport,
 ): Promise<ImageShotResult> {
@@ -139,7 +141,7 @@ export async function resolveImageShot(
 
   const source = isAbsolute(shot.image)
     ? shot.image
-    : resolve(manifestDir, shot.image);
+    : resolve(imageBaseDir, shot.image);
 
   if (!existsSync(source)) {
     throw new Error(
@@ -302,9 +304,9 @@ export interface CaptureRunResult {
 
 export interface CaptureProjectOptions {
   manifest: Manifest;
-  /** Base dir relative image paths resolve against (the repo root). */
-  repoRoot: string;
-  /** out/<project>/screenshots — where every shot is written. */
+  /** Base dir relative image paths resolve against (the project folder, projects/<project>/). */
+  imageBaseDir: string;
+  /** projects/<project>/captures — where every shot is written. */
   outDir: string;
   /** Saved Playwright session, used only when there is a browser shot. */
   statePath: string;
@@ -319,7 +321,7 @@ export interface CaptureProjectOptions {
 export async function captureProject(
   opts: CaptureProjectOptions,
 ): Promise<CaptureRunResult> {
-  const { manifest, repoRoot, outDir, statePath } = opts;
+  const { manifest, imageBaseDir, outDir, statePath } = opts;
   const results: ShotRunResult[] = [];
   const failed: string[] = [];
   const warned: string[] = [];
@@ -345,7 +347,7 @@ export async function captureProject(
         const r = await resolveImageShot(
           shot,
           index,
-          repoRoot,
+          imageBaseDir,
           outDir,
           manifest.viewport,
         );
@@ -398,7 +400,9 @@ async function main(): Promise<void> {
 
   assertManifestReady(project);
   const manifest = loadManifest(project);
-  const repoRoot = resolve(".");
+  // Manifest-relative image paths resolve against the project folder, so a
+  // manifest can point at manual/<file>.png inside its own folder.
+  const imageBaseDir = projectDir(project);
 
   // A saved session is only needed when we actually drive a browser; an
   // image-only manifest can run with no login at all.
@@ -413,15 +417,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const projectOutDir = resolve("out", project);
-  const outDir = join(projectOutDir, "screenshots");
+  const outDir = capturesDir(project);
   mkdirSync(outDir, { recursive: true });
 
-  // Prune screenshots left over from a previous run (renamed/reordered/removed
+  // Prune captures left over from a previous run (renamed/reordered/removed
   // shots) before capturing, so curation never sees an orphan.
   const expected = manifest.shots.map((s, i) => screenshotFilename(i + 1, s.id));
-  const { pruned, curationRemoved } = pruneStaleOutputs(projectOutDir, expected);
-  for (const name of pruned) console.log(`pruned stale screenshot: ${name}`);
+  const { pruned, curationRemoved } = pruneStaleOutputs(imageBaseDir, expected);
+  for (const name of pruned) console.log(`pruned stale capture: ${name}`);
   if (curationRemoved) {
     console.log(
       "removed stale curation.json — re-run curate after capture to regenerate it",
@@ -430,7 +433,7 @@ async function main(): Promise<void> {
 
   const { results, failed, warned } = await captureProject({
     manifest,
-    repoRoot,
+    imageBaseDir,
     outDir,
     statePath,
   });

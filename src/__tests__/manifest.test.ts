@@ -249,14 +249,14 @@ describe("image shots", () => {
     const shot = ShotSchema.safeParse({
       id: "mic",
       caption: "Live transcription",
-      image: "manual/myapp/mic.png",
+      image: "manual/mic.png",
     });
     expect(shot.success).toBe(true);
 
     const manifest = ManifestSchema.safeParse({
       name: "myapp",
       baseUrl: "https://myapp.example.com",
-      shots: [{ id: "mic", caption: "Live transcription", image: "manual/myapp/mic.png" }],
+      shots: [{ id: "mic", caption: "Live transcription", image: "manual/mic.png" }],
     });
     expect(manifest.success).toBe(true);
   });

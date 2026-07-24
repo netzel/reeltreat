@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
 import { loadManifest, type Manifest, type Shot } from "./manifest.js";
 import { assertManifestReady } from "./doctor.js";
 import { loadEnv } from "./env.js";
+import { capturesDir, curatedDir, curationPath } from "./paths.js";
+import { writeCuratedSet } from "./curated.js";
 import {
   TIER_KEYS,
   validateCuration,
@@ -233,7 +235,7 @@ export interface CurateResult {
 
 /**
  * Return cached curation if the cache key matches and --force wasn't passed;
- * otherwise call the model, validate, and write out/<project>/curation.json.
+ * otherwise call the model, validate, and write projects/<project>/curation.json.
  */
 export async function curateProject(opts: CurateOptions): Promise<CurateResult> {
   const model = opts.model ?? CURATION_MODEL;
@@ -281,19 +283,19 @@ async function main(): Promise<void> {
 
   const manifest = loadManifest(project);
 
-  const screenshotsDir = resolve("out", project, "screenshots");
-  const pngCount = existsSync(screenshotsDir)
-    ? readdirSync(screenshotsDir).filter((n) => n.toLowerCase().endsWith(".png")).length
+  const capturesPath = capturesDir(project);
+  const pngCount = existsSync(capturesPath)
+    ? readdirSync(capturesPath).filter((n) => n.toLowerCase().endsWith(".png")).length
     : 0;
   if (pngCount === 0) {
     console.error(
-      `No screenshots in ${screenshotsDir}. Run: npm run capture -- ${project} first`,
+      `No captures in ${capturesPath}. Run: npm run capture -- ${project} first`,
     );
     process.exit(1);
   }
 
-  const outPath = resolve("out", project, "curation.json");
-  const { images, files } = await loadShotImages(screenshotsDir, manifest);
+  const outPath = curationPath(project);
+  const { images, files } = await loadShotImages(capturesPath, manifest);
 
   const client = new Anthropic({ apiKey: anthropicApiKey });
   const result = await curateProject({
@@ -306,8 +308,26 @@ async function main(): Promise<void> {
     client,
   });
 
+  // Materialize the picked shots into curated/ (regenerated every run, even on a
+  // cache hit, so the folder always mirrors curation.json) — a browsable gallery,
+  // in video order, of exactly what the reel draws from across manual and auto
+  // captures.
+  const curatedPath = curatedDir(project);
+  const { copied, missing } = writeCuratedSet(
+    manifest,
+    result.curation,
+    capturesPath,
+    curatedPath,
+  );
+  for (const c of missing) {
+    console.warn(
+      `WARN curated set: capture for shot "${c.shotId}" (${c.from}) missing — re-run capture`,
+    );
+  }
+
   if (result.cached) {
     console.log("curation up to date (cached)");
+    console.log(`refreshed ${copied.length} shot(s) in ${curatedPath}`);
     return;
   }
 
@@ -319,6 +339,7 @@ async function main(): Promise<void> {
     );
   }
   console.log(`wrote ${outPath}`);
+  console.log(`curated ${copied.length} shot(s) into ${curatedPath}`);
 }
 
 /** True when this file is run directly (not imported by tests). */

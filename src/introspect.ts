@@ -251,7 +251,7 @@ export function isDemoWorthy(routePath: string): boolean {
  * Discover routes for a repo. Returns demo-worthy routes, de-duplicated by URL
  * and sorted by path. Vite/React has no filesystem routing convention, and an
  * unknown framework has none either, so both return an empty list — the caller
- * tells the user to hand-author the manifest from projects/example.yaml.
+ * tells the user to hand-author the manifest from projects/example/manifest.yaml.
  */
 export function discoverRoutes(
   repoPath: string,
