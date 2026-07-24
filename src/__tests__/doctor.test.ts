@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { checkManifestReady, formatDoctorReport } from "../doctor.js";
@@ -49,7 +49,7 @@ describe("checkManifestReady", () => {
   it("formats a human-readable report", () => {
     const result = checkManifestReady("baseUrl: TODO_SET_BASE_URL");
     const report = formatDoctorReport("myapp", result);
-    expect(report).toContain("projects/myapp.yaml is not ready:");
+    expect(report).toContain("projects/myapp/manifest.yaml is not ready:");
     expect(report).toContain("line 1: baseUrl is still TODO_SET_BASE_URL");
     expect(report).toContain("Fix these, then rerun.");
   });
@@ -71,7 +71,7 @@ const NOT_READY = [
 ].join("\n");
 
 const project = "__doctor_wire_test__";
-const manifestPath = join(repoRoot, "projects", `${project}.yaml`);
+const manifestPath = join(repoRoot, "projects", project, "manifest.yaml");
 
 /** Run `node --import tsx <script> <project>` and return {status, stderr}. */
 function runCli(script: string): { status: number; stderr: string } {
@@ -89,17 +89,18 @@ function runCli(script: string): { status: number; stderr: string } {
 }
 
 afterEach(() => {
-  rmSync(manifestPath, { force: true });
+  rmSync(dirname(manifestPath), { recursive: true, force: true });
 });
 
 describe.each(["login.ts", "capture.ts", "curate.ts"])(
   "%s refuses a manifest with TODO tokens",
   (script) => {
     it("exits non-zero and explains what to fix", () => {
+      mkdirSync(dirname(manifestPath), { recursive: true });
       writeFileSync(manifestPath, NOT_READY);
       const { status, stderr } = runCli(script);
       expect(status).not.toBe(0);
-      expect(stderr).toContain(`projects/${project}.yaml is not ready`);
+      expect(stderr).toContain(`projects/${project}/manifest.yaml is not ready`);
     });
   },
 );

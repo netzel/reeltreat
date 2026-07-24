@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { screenshotFilename } from "./capture.js";
+import { projectDir as projectRoot } from "./paths.js";
 import type { Manifest } from "./manifest.js";
 import type { CurationResult } from "./curation-schema.js";
 import type { KenBurns, ReelBrand } from "../remotion/types.js";
@@ -64,8 +65,8 @@ export interface BuildReelOptions {
   /** Target total length in seconds; must be a tier present in curation.cuts. */
   durationSeconds: number;
   fps: number;
-  /** out/<project> dir screenshots live under. Defaults to out/<manifest.name>. */
-  outDir?: string;
+  /** The project folder captures live under. Defaults to projects/<manifest.name>. */
+  projectDir?: string;
   /** Existence check, injectable for tests. Defaults to fs.existsSync. */
   fileExists?: (path: string) => boolean;
 }
@@ -100,14 +101,14 @@ export function kenBurnsForIndex(index: number): KenBurns {
 export function resolveShotImagePath(
   manifest: Manifest,
   shotId: string,
-  outDir: string = resolve("out", manifest.name),
+  projectDir: string = projectRoot(manifest.name),
   fileExists: (path: string) => boolean = existsSync,
 ): string {
   const index = manifest.shots.findIndex((s) => s.id === shotId);
   if (index === -1) {
     throw new Error(`shot "${shotId}" is not in manifest "${manifest.name}"`);
   }
-  const file = join(outDir, "screenshots", screenshotFilename(index + 1, shotId));
+  const file = join(projectDir, "captures", screenshotFilename(index + 1, shotId));
   if (!fileExists(file)) {
     throw new Error(
       `screenshot for shot "${shotId}" not found at ${file} — run: npm run capture -- ${manifest.name}`,
@@ -131,11 +132,11 @@ export type ReadImageSize = (path: string) => Promise<ScreenshotSize>;
  */
 export function screenshotPathsForManifest(
   manifest: Manifest,
-  outDir: string = resolve("out", manifest.name),
+  projectDir: string = projectRoot(manifest.name),
 ): { shotId: string; path: string }[] {
   return manifest.shots.map((s, i) => ({
     shotId: s.id,
-    path: join(outDir, "screenshots", screenshotFilename(i + 1, s.id)),
+    path: join(projectDir, "captures", screenshotFilename(i + 1, s.id)),
   }));
 }
 
@@ -324,7 +325,7 @@ export function buildReel(opts: BuildReelOptions): Reel {
   const calloutById = new Map(curation.shots.map((s) => [s.id, s.callout]));
   const scenes: ReelScene[] = kept.map((k, i) => ({
     shotId: k.id,
-    imagePath: resolveShotImagePath(manifest, k.id, opts.outDir, opts.fileExists),
+    imagePath: resolveShotImagePath(manifest, k.id, opts.projectDir, opts.fileExists),
     callout: calloutById.get(k.id) ?? "",
     durationInFrames: sceneFrames[i],
     kenBurns: kenBurnsForIndex(i),

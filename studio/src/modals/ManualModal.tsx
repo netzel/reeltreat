@@ -39,7 +39,7 @@ export function ManualModal() {
             </div>
           </div>
 
-          <div style={{ fontSize: 11, color: "var(--text-faint)", display: "flex", gap: 7 }}><span style={{ color: "var(--info)" }}>ⓘ</span>Stored locally under <span style={{ fontFamily: "var(--mono)" }}>manual/myapp/</span> (gitignored). Behaves like a captured shot.</div>
+          <div style={{ fontSize: 11, color: "var(--text-faint)", display: "flex", gap: 7 }}><span style={{ color: "var(--info)" }}>ⓘ</span>Stored locally under <span style={{ fontFamily: "var(--mono)" }}>projects/myapp/manual/</span> (gitignored). Behaves like a captured shot.</div>
         </div>
         <div style={{ padding: "14px 18px", borderTop: "1px solid var(--border)", display: "flex", gap: 10 }}>
           <button onClick={close} style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", fontSize: 13, cursor: "pointer" }}>Cancel</button>

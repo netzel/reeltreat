@@ -7,21 +7,47 @@ Point it at any web app (local or deployed). reeltreat logs in with your saved s
 ## How it works
 1. **Init** — point reeltreat at a local app repo; it detects the framework, discovers routes, extracts brand colors, and writes a ready-to-run project manifest for you.
 2. **Capture** — Playwright visits the routes in your manifest and screenshots each screen, authenticated as you.
-3. **Curate** — one Claude API call ranks the shots, picks the hero frame, writes callout labels and a tagline.
+3. **Curate** — one Claude API call ranks the shots, picks the hero frame, writes callout labels and a tagline, and copies the picked shots into `curated/` in video order so you can see exactly what the reel will use.
 4. **Render** — Remotion composes a branded video: animated title card, Ken Burns motion over your screens, crossfades, callouts, and a poster image.
 
 ## Usage
 
 ```sh
-npm run init    -- myapp --repo ../myapp   # generate projects/myapp.yaml from a local repo
+npm run init    -- myapp --repo ../myapp   # generate projects/myapp/manifest.yaml from a local repo
 npm run login   -- myapp   # one-time: log in, session is saved to auth/myapp.json
-npm run capture -- myapp   # screenshot every shot in projects/myapp.yaml
+npm run capture -- myapp   # screenshot every shot in projects/myapp/manifest.yaml
 npm run curate  -- myapp   # AI-curate the shots (add --force to re-run)
 npm run render  -- myapp   # render the branded video + poster (default 15s)
 ```
 
-Everything lands under `out/<project>/`: `screenshots/`, `curation.json`,
-one `demo-<N>s.mp4` per rendered duration, and `poster.png`.
+### Project folder layout
+
+Everything for one project lives in a single folder, `projects/<project>/`, so
+you never bounce between separate trees to see a project's assets:
+
+```
+projects/myapp/
+  manifest.yaml    the shots, viewport, and brand tokens you edit
+  manual/          screenshots you took by hand (source for `image` shots)
+  captures/        what capture writes — browser captures AND normalized manual
+                   shots, all NN-<id>.png at the manifest viewport
+  curated/         the shots curation picked, copied here in video order, hero
+                   flagged — a browsable "what's actually in the reel?" view
+  curation.json    the cached AI curation (ranks, callouts, tagline, cuts)
+  renders/         the finished demo-<N>s.mp4 files and poster.png
+```
+
+The whole folder is gitignored (only the checked-in `projects/example/` ships),
+so your app's assets never leave your machine. Login sessions are the one thing
+kept outside it, under `auth/<project>.json` — a credential, not a browsable
+asset.
+
+**Manual and auto captures are siblings.** A shot in the manifest is either a
+browser capture (`path:`) or a manual screenshot (`image:`). `capture` walks the
+manifest in order and writes *both* kinds into `captures/` under the same
+`NN-<id>.png` naming, normalized to the same viewport — so from curation onward
+nothing cares how a shot was produced. `manual/` holds your raw sources;
+`captures/` holds the normalized, tool-produced frames.
 
 ### Logging in
 
@@ -84,11 +110,11 @@ Resolution per field is: explicit per-shot value → manifest default → built-
 default. `init` generates a `defaults` block with `delayMs: 2000` so freshly
 generated manifests work on typical client-rendered apps without hand editing.
 
-**Stale-screenshot pruning.** Before capturing, any `.png` in
-`out/<project>/screenshots/` that the current manifest no longer produces
+**Stale-capture pruning.** Before capturing, any `.png` in
+`projects/<project>/captures/` that the current manifest no longer produces
 (a renamed, reordered, or deleted shot) is removed and logged, so orphaned
 frames never reach curation. When anything is pruned, the now-stale
-`out/<project>/curation.json` is deleted too — re-run `curate` to regenerate it.
+`projects/<project>/curation.json` is deleted too — re-run `curate` to regenerate it.
 
 **Manual image shots.** Some states can't be reached by automation — anything
 needing real hardware input (a live microphone or camera), live audio, or a
@@ -101,17 +127,19 @@ shots:
     path: /dashboard          # browser capture
     caption: Overview
   - id: live-transcription
-    image: manual/myapp/live-transcription.png   # your own screenshot
+    image: manual/live-transcription.png   # your own screenshot
     caption: Real-time transcription as you speak
 ```
 
 A shot sets exactly one of `path` or `image`; browser-only settings
 (`waitUntil`, `timeoutMs`, `waitFor`, `delayMs`, `fullPage`) aren't allowed on an
-image shot. The file is resolved relative to the repo root (absolute paths work
-too), converted to PNG if needed, and written into the screenshots directory
-with the same `NN-<id>.png` naming as a captured shot — so curation and
-rendering treat it identically. Keep these files under **`manual/<project>/`** at
-the repo root; that folder is gitignored. If a manifest has only image shots,
+image shot. The file is resolved relative to the project folder
+(`projects/<project>/`, so `manual/live-transcription.png` means
+`projects/<project>/manual/live-transcription.png`; absolute paths work too),
+converted to PNG if needed, and written into `captures/` with the same
+`NN-<id>.png` naming as a browser shot — so curation and rendering treat it
+identically. Keep these source files under this project's **`manual/`** folder;
+the whole project folder is gitignored. If a manifest has only image shots,
 `capture` runs without launching a browser or needing a saved login.
 
 **Normalized to the viewport.** Manual images are scaled to the manifest
@@ -122,7 +150,7 @@ fields control how (both rejected on a `path` shot):
 ```yaml
 shots:
   - id: live-transcription
-    image: manual/myapp/live-transcription.png
+    image: manual/live-transcription.png
     caption: Real-time transcription as you speak
     fit: cover              # (default) scale to fill, then center-crop the overflow
     # fit: contain          # instead, scale the whole image to fit and pad the rest
@@ -152,13 +180,14 @@ npm run render -- myapp --duration 15 --fps 60
 ```
 
 - `--duration N` picks the cut to render. Curation produces 5s, 15s, 30s, and
-  45s cuts; the tier must exist in `out/<project>/curation.json` (run `curate`
+  45s cuts; the tier must exist in `projects/<project>/curation.json` (run `curate`
   first). Default is 15.
 - `--all` renders every tier present in the curation.
 - `--fps N` sets the frame rate (default 30).
 
-Outputs go to `out/<project>/`: `demo-<N>s.mp4` (h264) per tier and a single
-`poster.png`. Each run prints the output paths, their sizes, and the total time.
+Outputs go to `projects/<project>/renders/`: `demo-<N>s.mp4` (h264) per tier and
+a single `poster.png`. Each run prints the output paths, their sizes, and the
+total time.
 
 Scene timing follows the curation's per-shot seconds, capped at 5s per scene
 (any excess is redistributed) and floored at 1.2s (if a cut has more shots than
@@ -173,8 +202,8 @@ npm run studio
 
 ### Generating a manifest
 
-`init` introspects a local app repo and writes `projects/<project>.yaml` with
-routes, captions, and brand colors already filled in:
+`init` introspects a local app repo and writes `projects/<project>/manifest.yaml`
+with routes, captions, and brand colors already filled in:
 
 ```sh
 npm run init -- myapp --repo ../myapp [--base-url http://localhost:3000] [--force]
@@ -188,9 +217,9 @@ and `curate` refuse to run until those placeholders are resolved, and tell you
 exactly which lines to fix.
 
 If your framework isn't supported, hand-write the manifest instead: copy
-`projects/example.yaml` to `projects/<your-project>.yaml` and edit it.
+`projects/example/` to `projects/<your-project>/` and edit its `manifest.yaml`.
 
-The curated result is cached to `out/<your-project>/curation.json`; re-running
+The curated result is cached to `projects/<your-project>/curation.json`; re-running
 `curate` reuses the cache unless the screenshots or manifest change (or you pass
 `--force`).
 

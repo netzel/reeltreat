@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { manifestPath } from "./paths.js";
 
 /** Allowed navigation-wait values. See Playwright page.goto waitUntil. */
 export const WAIT_UNTIL_VALUES = ["load", "domcontentloaded", "networkidle"] as const;
@@ -207,11 +207,11 @@ export const ManifestSchema = z
 export type Manifest = z.infer<typeof ManifestSchema>;
 
 /**
- * Read projects/<projectName>.yaml, parse and validate it.
+ * Read projects/<projectName>/manifest.yaml, parse and validate it.
  * Throws a clear error naming the file and the validation issues if invalid.
  */
 export function loadManifest(projectName: string): Manifest {
-  const file = resolve("projects", `${projectName}.yaml`);
+  const file = manifestPath(projectName);
 
   let raw: string;
   try {
