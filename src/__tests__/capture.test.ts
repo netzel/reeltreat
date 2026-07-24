@@ -467,6 +467,32 @@ describe("captureProject", () => {
     expect(existsSync(join(outDir, "01-a.png"))).toBe(true);
   });
 
+  it("captures without a saved session when the state file is absent (public site)", async () => {
+    pw.browser.newContext.mockClear();
+    const result = await captureProject({
+      manifest: manifest([{ id: "home", path: "/home", caption: "Home" }]),
+      imageBaseDir: repoRoot,
+      outDir,
+      statePath: join(repoRoot, "no-session.json"), // does not exist
+    });
+    expect(result.results.map((r) => r.id)).toEqual(["home"]);
+    // No storageState is passed, so a public site captures without authenticating.
+    expect(pw.browser.newContext.mock.calls[0][0].storageState).toBeUndefined();
+  });
+
+  it("reuses a saved session when the state file exists", async () => {
+    pw.browser.newContext.mockClear();
+    const statePath = join(repoRoot, "session.json");
+    writeFileSync(statePath, JSON.stringify({ cookies: [], origins: [] }));
+    await captureProject({
+      manifest: manifest([{ id: "home", path: "/home", caption: "Home" }]),
+      imageBaseDir: repoRoot,
+      outDir,
+      statePath,
+    });
+    expect(pw.browser.newContext.mock.calls[0][0].storageState).toBe(statePath);
+  });
+
   it("captures browser shots and resolves image shots into correctly ordered filenames", async () => {
     await writeImage(join(repoRoot, "mic.png"), "png");
 

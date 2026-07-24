@@ -1,5 +1,8 @@
 # DECISIONS.md — append-only architectural log, newest-first
 Format: ## YYYY-MM-DD — Title, then a short entry. Never edit past entries.
 
+## 2026-07-24 — Non-destructive edits, deployed-URL projects, and optional-login capture
+Creative edits that aren't the AI's work (crops today; motion/duration later) live in a per-project edit.json layered over curation.json at render time — the captured screenshots are never mutated, so resets are one click and the curation cache and re-captures are undisturbed. Added a repo-free "deployed URL" project path (createBlankProject) that writes a validated starter manifest and normalizes a scheme-less base URL to https://. Capture no longer hard-requires a saved session: a public site captures with none, and a saved login is used only when present — plus a PLAYWRIGHT_BROWSER_EXECUTABLE override (mirroring REMOTION_BROWSER_EXECUTABLE) for offline/locked-down environments.
+
 ## 2026-07-21 — Initial architecture: Playwright + Claude curation + Remotion
 Stills-based pipeline chosen over screen recording: deterministic, testable, and better-looking output. Playwright handles authenticated capture via saved storage state; Remotion chosen because video-as-React keeps the whole tool in one TypeScript stack. One cached Claude vision call handles shot selection, callout labels, and tagline — everything else is deterministic. No database or hosting: pure local CLI. Each project's assets live in one folder, projects/<name>/ (manifest, manual sources, captures, curated set, renders), which is gitignored along with auth/; the tool itself, and the checked-in projects/example/, are public.

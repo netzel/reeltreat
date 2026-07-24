@@ -341,10 +341,20 @@ export async function captureProject(
   let browser: Browser | undefined;
   let page: CapturePage | undefined;
   if (hasBrowserShot) {
-    browser = await chromium.launch({ headless: true });
+    // Escape hatch for offline / locked-down environments: point Playwright at an
+    // already-installed Chrome/Chromium instead of its bundled build (mirrors
+    // REMOTION_BROWSER_EXECUTABLE on the render side). Unset by default.
+    const executablePath = process.env.PLAYWRIGHT_BROWSER_EXECUTABLE || undefined;
+    browser = await chromium.launch({
+      headless: true,
+      ...(executablePath ? { executablePath } : {}),
+    });
     const context = await browser.newContext({
       viewport: manifest.viewport,
-      storageState: statePath,
+      // Reuse a saved login only if one exists; a public site captures fine with
+      // none. A shot that actually needs auth just captures its logged-out view,
+      // which the user can see and then run Authenticate to fix.
+      ...(statePath && existsSync(statePath) ? { storageState: statePath } : {}),
     });
     page = await context.newPage();
   }

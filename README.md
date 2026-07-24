@@ -90,6 +90,13 @@ it). A navigation timeout no longer abandons a shot: if the page rendered,
 capture screenshots it anyway and reports it as "captured with warnings" —
 only shots that produced no page at all count as failures.
 
+A saved login is **optional**: a public site captures with no session at all,
+and a shot that does need auth just captures its logged-out view (run `login` to
+fix it). Capture uses Playwright's bundled Chromium — if it isn't installed, run
+`npx playwright install chromium`, or in an offline/locked-down environment point
+capture at an existing browser with `PLAYWRIGHT_BROWSER_EXECUTABLE=/path/to/chrome`
+(the capture-side counterpart of `REMOTION_BROWSER_EXECUTABLE`).
+
 **Defaults for every shot.** A top-level `defaults` block sets capture options
 once for all shots — handy for client-rendered apps, where a `delayMs` settle
 keeps you from screenshotting loading skeletons:

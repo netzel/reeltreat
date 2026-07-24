@@ -160,6 +160,9 @@ export const api = {
   createProject: (input: { name: string; repoPath: string; baseUrl?: string; force?: boolean }) =>
     sendJson<{ ok: true; manifestPath: string }>("/api/projects", "POST", input),
 
+  createBlankProject: (input: { name: string; baseUrl?: string; force?: boolean }) =>
+    sendJson<{ ok: true; manifestPath: string }>("/api/projects/blank", "POST", input),
+
   getProject: (name: string) => getJson<ProjectDetail>(`/api/projects/${encodeURIComponent(name)}`),
 
   getManifest: (name: string) =>

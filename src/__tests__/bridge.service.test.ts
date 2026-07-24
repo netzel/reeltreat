@@ -13,6 +13,7 @@ import sharp from "sharp";
 import {
   addManualShot,
   clearCrop,
+  createBlankProject,
   createProject,
   getCuration,
   getEdit,
@@ -210,10 +211,6 @@ describe("curation read/write", () => {
 
 describe("runCapture", () => {
   it("prunes, runs the injected capture, and summarizes results", async () => {
-    // A browser shot needs a saved session.
-    mkdirSync(join(root, "auth"), { recursive: true });
-    writeFileSync(join(root, "auth", "myapp.json"), "{}");
-
     const capture = vi.fn().mockResolvedValue({
       results: [
         { id: "home", file: "x", kind: "browser" },
@@ -229,10 +226,17 @@ describe("runCapture", () => {
     expect(capture).toHaveBeenCalledOnce();
   });
 
-  it("throws when a browser shot has no saved session", async () => {
-    const capture = vi.fn();
-    await expect(runCapture("myapp", undefined, { capture })).rejects.toThrow(/No saved session/);
-    expect(capture).not.toHaveBeenCalled();
+  it("captures without a saved session (a public site needs no login)", async () => {
+    // No auth/myapp.json exists here; capture should still run.
+    const capture = vi.fn().mockResolvedValue({
+      results: [{ id: "home", file: "x", kind: "browser" }],
+      failed: [],
+      warned: [],
+      browserLaunched: true,
+    });
+    const summary = await runCapture("myapp", undefined, { capture });
+    expect(capture).toHaveBeenCalledOnce();
+    expect(summary).toMatchObject({ captured: 1, failed: 0 });
   });
 
   it("throws when the manifest still has TODO placeholders", async () => {
@@ -326,5 +330,34 @@ describe("crops (edit.json)", () => {
   it("rejects an invalid rect without writing", () => {
     expect(() => setCrop("myapp", "home", { x: 0, y: 0, w: 1.5, h: 0.5 })).toThrow(/invalid crop/);
     expect(getEdit("myapp").crops.home).toBeUndefined();
+  });
+});
+
+describe("createBlankProject (deployed URL only)", () => {
+  it("writes a valid starter manifest and normalizes a scheme-less base URL", () => {
+    const res = createBlankProject({ name: "bytyme", baseUrl: "bytyme.vercel.app" });
+    expect(res.ok).toBe(true);
+    const text = readFileSync(join(root, "projects", "bytyme", "manifest.yaml"), "utf8");
+    expect(text).toContain("baseUrl: https://bytyme.vercel.app"); // https:// prepended
+    // The written manifest loads and lists at least one shot.
+    const detail = getProjectDetail("bytyme");
+    expect(detail.shots.length).toBeGreaterThanOrEqual(1);
+    expect(detail.shots[0].id).toBe("home");
+  });
+
+  it("keeps an explicit scheme as-is", () => {
+    createBlankProject({ name: "withscheme", baseUrl: "http://localhost:3000" });
+    const text = readFileSync(join(root, "projects", "withscheme", "manifest.yaml"), "utf8");
+    expect(text).toContain("baseUrl: http://localhost:3000");
+  });
+
+  it("rejects a non-slug project name and a missing base URL", () => {
+    expect(() => createBlankProject({ name: "Not Slug", baseUrl: "https://x.com" })).toThrow(/slug/);
+    expect(() => createBlankProject({ name: "nourl", baseUrl: "" })).toThrow(/Base URL is required/);
+  });
+
+  it("refuses to overwrite an existing project without force", () => {
+    createBlankProject({ name: "dupe", baseUrl: "https://x.com" });
+    expect(() => createBlankProject({ name: "dupe", baseUrl: "https://x.com" })).toThrow(/already exists/);
   });
 });

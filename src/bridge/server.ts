@@ -100,6 +100,20 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    method: "POST",
+    pattern: /^\/api\/projects\/blank$/,
+    handler: ({ res, body }) =>
+      sendJson(
+        res,
+        200,
+        svc.createBlankProject({
+          name: String(body.name ?? ""),
+          baseUrl: body.baseUrl ? String(body.baseUrl) : undefined,
+          force: Boolean(body.force),
+        }),
+      ),
+  },
+  {
     method: "GET",
     pattern: /^\/api\/projects\/(?<project>[^/]+)$/,
     handler: ({ res, params }) => sendJson(res, 200, svc.getProjectDetail(params.project)),
