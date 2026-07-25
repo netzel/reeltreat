@@ -3,6 +3,11 @@ auth/
 .env
 *.log
 dist/
+# Stale user-asset dirs from the pre-projects/<name>/ layout. Kept ignored per
+# the public-repo rule (user assets never ship); the current layout writes these
+# under projects/<name>/ instead.
+out/
+manual/
 # Everything under projects/ is a user's private project folder (manifest +
 # assets + renders) except the checked-in example. Ignore all projects, keep
 # the example folder but not any assets someone generates by running it.
