@@ -75,11 +75,49 @@ function shutdown(code) {
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
-// Bridge first (the UI proxies to it), then the Vite dev server.
-run("bridge", ["run", "bridge"]);
-run("ui", ["--prefix", "studio", "run", "dev"]);
+/**
+ * Poll the bridge until it answers. The UI auto-opens the browser the instant
+ * Vite is ready (~350ms), but the bridge takes longer to boot (tsx + heavy
+ * imports). Starting the UI before the bridge is listening makes the browser's
+ * first /api calls race the boot and Vite surfaces the refused connection as a
+ * 500. Waiting here means the browser only opens once /api actually works.
+ */
+async function waitForBridge(url, { timeoutMs = 30000, intervalMs = 250 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (shuttingDown) return false;
+    try {
+      const res = await fetch(url);
+      if (res.ok) return true;
+    } catch {
+      /* bridge not listening yet — keep polling */
+    }
+    if (Date.now() > deadline) return false;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
 
-console.log("reeltreat Studio starting…");
-console.log("  • bridge  → http://localhost:5179  (pipeline API)");
-console.log("  • web app → http://localhost:5175  (opens automatically once Vite is ready)");
-console.log("Press Ctrl-C to stop both.\n");
+async function main() {
+  console.log("reeltreat Studio starting…");
+  console.log("  • bridge  → http://localhost:5179  (pipeline API)");
+  console.log("  • web app → http://localhost:5175  (opens automatically once the bridge is ready)");
+  console.log("Press Ctrl-C to stop both.\n");
+
+  // Bridge first (the UI proxies to it); wait until it actually answers before
+  // starting Vite, so the browser never opens onto a not-yet-listening /api.
+  // 127.0.0.1 matches the bridge's bind, avoiding a localhost ::1 miss/fallback.
+  run("bridge", ["run", "bridge"]);
+  const ready = await waitForBridge("http://127.0.0.1:5179/api/projects");
+  if (!ready) {
+    if (!shuttingDown) {
+      process.stderr.write(
+        "[studio] bridge did not become ready within 30s — is port 5179 already in use? Shutting down.\n",
+      );
+      shutdown(1);
+    }
+    return;
+  }
+  run("ui", ["--prefix", "studio", "run", "dev"]);
+}
+
+main();
